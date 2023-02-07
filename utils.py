@@ -18,7 +18,7 @@ def roundTime(dt, roundTo=5*60):
     return to_datetime(dt + Timedelta(seconds=rounding-seconds, microseconds=-dt.microsecond))
 
 
-def lv_to_wgs84(lv_lat, lv_lon, h_lv, type: _types):
+def lv_to_wgs84(lv_lat, lv_lon, type: _types, h_lv=None):
     if type == 'lv03':
         y_prime = (lv03_lon - 600000) / 1000000
         x_prime = (lv03_lat - 200000) / 1000000
@@ -44,14 +44,16 @@ def lv_to_wgs84(lv_lat, lv_lon, h_lv, type: _types):
     wgs84_lat = (phi_prime * 100) / 36
     wgs84_lon = (lambda_prime * 100) / 36
 
-    h_wgs = h_lv + 49.55 \
-            - 12.9 * y_prime \
-            - 22.64 * x_prime
+    if h_lv:
+        h_wgs = h_lv + 49.55 \
+                - 12.9 * y_prime \
+                - 22.64 * x_prime
+        return wgs84_lat, wgs84_lon, h_wgs
+    else:
+        return wgs84_lat, wgs84_lon
 
-    return wgs84_lat, wgs84_lon, h_wgs
 
-
-def wgs84_to_lv(wgs84_lat, wgs84_lon, h_wgs, type: _types):
+def wgs84_to_lv(wgs84_lat, wgs84_lon, type: _types, h_wgs=None):
     # Breite = latitude = phi, Länge = longitude = lambda
     phi_prime = (wgs84_lat - 169028.66) / 10000
     lambda_prime = (wgs84_lon - 26782.5) / 10000
@@ -71,18 +73,23 @@ def wgs84_to_lv(wgs84_lat, wgs84_lon, h_wgs, type: _types):
                - 194.56 * lambda_prime**2 * phi_prime \
                + 119.79 * phi_prime**3
 
-    h_lv = h_wgs - 49.55 \
-           + 2.73 * lambda_prime \
-           + 6.94 * phi_prime
+    if h_wgs:
+        h_lv = h_wgs - 49.55 \
+               + 2.73 * lambda_prime \
+               + 6.94 * phi_prime
 
-    if type == 'lv95':
+    if type == 'lv95' and h_wgs:
         return lv95_lon, lv95_lat, h_lv
+    elif type == 'lv95' and not h_wgs:
+        return lv95_lon, lv95_lat
     elif type == 'lv03':
         # y = longitude, x = latitude
         lv03_lon = lv95_lon - 2000000
         lv03_lat = lv95_lat - 1000000
-        return  lv03_lon, lv03_lat, h_lv
-
+        if h_wgs:
+            return lv03_lon, lv03_lat, h_lv
+        else:
+            return lv03_lon, lv03_lat
 
 def DST_TZ(times):
     for idx, time in enumerate(times):
