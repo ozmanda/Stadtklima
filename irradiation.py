@@ -1,32 +1,10 @@
 import numpy as np
+from utils import lv03_to_wgs84
 from pysolar import solar, radiation
 
 
-def convert_coordinates(targetlat, targetlon):
-    x_prime = (targetlat - 200000) / 1000000
-    y_prime = (targetlon - 600000) / 1000000
-
-    lambda_prime = 2.6779094 + \
-                   4.728982 * y_prime + \
-                   0.791484 * y_prime * x_prime + \
-                   0.130600 * y_prime * x_prime**2 - \
-                   0.043600 * y_prime**3
-
-    phi_prime = 16.9023892 + \
-                3.238272 * x_prime - \
-                0.270978 * y_prime**2 - \
-                0.002528 * x_prime**2 - \
-                0.044700 * x_prime + y_prime**2 - \
-                0.014000 * x_prime**3
-
-    lat = (phi_prime * 100) / 36
-    lon = (lambda_prime * 100) / 36
-
-    return lat, lon
-
-
 def irradiationcalc(times, targetlat, targetlon):
-    targetlat, targetlon = convert_coordinates(targetlat, targetlon)
+    targetlat, targetlon = lv03_to_wgs84(targetlat, targetlon)
     irradiation = list()
     for time in times:
         time = time.to_pydatetime()
