@@ -1,10 +1,10 @@
 import numpy as np
-from utils import lv03_to_wgs84
+from utils import lv_to_wgs84
 from pysolar import solar, radiation
 
 
 def irradiationcalc(times, targetlat, targetlon):
-    targetlat, targetlon = lv03_to_wgs84(targetlat, targetlon)
+    targetlat, targetlon = lv_to_wgs84(targetlat, targetlon, type='lv95')
     irradiation = list()
     for time in times:
         time = time.to_pydatetime()
