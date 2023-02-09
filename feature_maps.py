@@ -55,10 +55,10 @@ def extract_palm_data(palmpath, res):
 def stations_loc(boundary, stationdata):
     print('   identifying stations within the boundary')
     stationscsv = read_csv(stationdata, delimiter=";")
-    stations = np.empty(shape=(0, 3))
+    stations = {}
     for _, row in stationscsv.iterrows():
         if boundary['CH_E'] <= int(row["CH_E"]) <= boundary['CH_W'] and boundary['CH_S'] <= int(row["CH_N"]) <= boundary['CH_N']:
-            stations = np.append(stations, [[row["stationid_new"], int(row["CH_E"]), int(row["CH_N"])]], axis=0)
+            stations[row["stationid_new"]] = {'lat': int(row["CH_N"]), 'lon': int(row["CH_E"])}
     return stations
 
 
@@ -195,7 +195,7 @@ def extract_measurement(datapath, times):
 
 
 def generate_measurementmaps(datapath, stations, times, boundary, purpose):
-    statnames = list(stations[:, 0])
+    statnames = stations.keys()
     # create empty array for humidities
     measurementmaps = np.zeros(shape=(len(times),
                                int(boundary['CH_W'] - boundary['CH_E']),
@@ -205,12 +205,12 @@ def generate_measurementmaps(datapath, stations, times, boundary, purpose):
         if not file.startswith(purpose):
             continue
         stationname = file.split(".")[0].split("_")[1]
-        if stationname not in stations[:, 0]:
+        if stationname not in stations.keys():
             continue
 
         s += 1 # counter for progress visualisation
         print(f'Extracting {"humidities" if purpose == "humi" else "temperatures"} '
-              f'({s}/{len(stations[:, 0])}) for {stationname} ')
+              f'({s}/{len(stations.keys())}) for {stationname} ')
 
         measurements = extract_measurement(os.path.join(datapath, file), times)
         if measurements is None:
@@ -219,8 +219,8 @@ def generate_measurementmaps(datapath, stations, times, boundary, purpose):
             continue
         try:
             idx = statnames.index(stationname)
-            idxlon = int(int(stations[idx, 1]) - boundary['CH_E'])
-            idxlat = int(int(stations[idx, 2]) - boundary['CH_S'])
+            idxlat = int(int(stations[stationname]['lat']) - boundary['CH_S'])
+            idxlon = int(int(stations[stationname]['lon']) - boundary['CH_E'])
             measurementmaps[:, idxlon, idxlat] = measurements
         except Exception:
             warn(f'Adding humidities for station {stationname} failed, skipping this station.')
