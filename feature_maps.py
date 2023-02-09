@@ -1,6 +1,8 @@
 import argparse
 import os
-from pandas import read_csv, to_datetime, DataFrame
+from warnings import warn
+import pandas as pd
+from pandas import read_csv, to_datetime, DataFrame, Timedelta
 import numpy as np
 from netCDF4 import Dataset
 from utils import lv_to_wgs84, wgs84_to_lv, extract_times, extract_surfacetemps, roundTime, manhatten_distance, moving_average
@@ -17,9 +19,10 @@ geofeatures = ['altitude', 'buildings', 'buildings_10', 'buildings_30', 'buildin
 def format_boundaries(boundary):
     """
     Takes boundary definition in ° and transforms it into a dictionary containing LV95 projection coordinates
+    boundary: [lat_S, lat_N, lon_E, lon_W]
     """
     assert boundary[0] < boundary[1], 'Northern latitude must be larger than the southern latitude'
-    assert boundary[2] > boundary[3], 'Eastern longitude must be larger than the western longitude'
+    assert boundary[2] < boundary[3], 'Eastern longitude must be larger than the western longitude'
     CH_S, CH_E = wgs84_to_lv(boundary[0], boundary[2], 'lv95')
     CH_N, CH_W = wgs84_to_lv(boundary[1], boundary[3], 'lv95')
     return {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
@@ -50,19 +53,29 @@ def extract_palm_data(palmpath, res):
 
 
 def stations_loc(boundary, stationdata):
+    print('   identifying stations within the boundary')
     stationscsv = read_csv(stationdata, delimiter=";")
     stations = np.empty(shape=(0, 3))
     for _, row in stationscsv.iterrows():
-        if boundary['CH_E'] <= int(row["CH_E"]) <= boundary['CH_W'] and \
-           boundary['CH_S'] <= int(row["CH_N"]) <= boundary['CH_N']:
+        if boundary['CH_E'] <= int(row["CH_E"]) <= boundary['CH_W'] and boundary['CH_S'] <= int(row["CH_N"]) <= boundary['CH_N']:
             stations = np.append(stations, [[row["stationid_new"], int(row["CH_E"]), int(row["CH_N"])]], axis=0)
     return stations
 
 
-def identify_stations(boundary, stationdata):
-    print('   identifying stations within the boundary')
-    stations = stations_loc(boundary, stationdata)
-    
+def in_window(timeframe, times):
+    afterStart = (timeframe[0] <= times).to_list()
+    beforeEnd = (times <= timeframe[1]).to_list()
+    return [a and b for a,b in zip(afterStart, beforeEnd)]
+
+
+def time_generation(timeframe):
+    times = []
+    time = timeframe[0]
+    while time < timeframe[1]:
+        times.append(time)
+        time += Timedelta(minutes=5)
+    return times
+
     
 # MEASUREMENT AND FEATURE GENERATION ----------------------------------------------------------------------------------
 def res_adjustment(featuremap, res):
@@ -105,7 +118,7 @@ def res_adjustment(featuremap, res):
     return newmap
 
 
-def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, res, sigma=3):
+def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, sigma=3):
     geomaps = np.zeros(shape=(shape[0], len(geofeaturelist) * (len(convs) + 1), shape[1], shape[2]))
     print('\nGenerating Geofeatures')
     for idx, geofeature in enumerate(geofeaturelist):
@@ -123,9 +136,6 @@ def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, res, sigma=
 
         lons = [int(np.round(boundary['CH_E'] - originlon)), int(np.round(boundary['CH_W'] - originlon))]
         lats = [int(np.round(originlat - boundary['CH_N'])), int(np.round(originlat - boundary['CH_S']))]
-
-        # geomaps[:, idx * len(geofeaturelist) - 1, :, :] = res_adjustment(featuremap[0, lons[0]:lons[1],
-        #                                                                  lats[0]:lats[1]], res)
         print('    convolutions...')
         for idx, conv in enumerate(convs):
             if conv % 2 != 0:
@@ -218,7 +228,7 @@ def generate_measurementmaps(datapath, stations, times, boundary, purpose):
 
     return measurementmaps
     
-def generate_features(datapath, geopath, stations, boundary, times, resolution):
+def generate_features(datapath, geopath, stations, boundary, times, resolution=None):
     print('Temperatures....................')
     if 'movingaverage.pickle' not in os.listdir(os.getcwd()):
         # TEMPERATURE MEASUREMENTS
@@ -272,7 +282,7 @@ def generate_features(datapath, geopath, stations, boundary, times, resolution):
         if 'geomaps_nores.pickle' not in os.listdir(os.getcwd()):
             geofeaturelist = ["altitude", "buildings", "forests", "pavedsurfaces", "surfacewater", "urbangreen"]
             convs = [10, 30, 100, 200, 500]
-            geomaps = generate_geomap(geopath, boundary, humimaps.shape, geofeaturelist, convs, resolution)
+            geomaps = generate_geomap(geopath, boundary, humimaps.shape, geofeaturelist, convs)
         try:
             geomaps.dump(os.path.join(os.getcwd(), 'geomaps_nores.pickle'))
         except OverflowError:
@@ -306,12 +316,19 @@ def add_geos(dict, geos):
 
 
 # WRAPPER FUNCTIONS ---------------------------------------------------------------------------------------------------
-def generate_validation_featuremaps(datapath, geopath, stationinfo, savepath, palmpath, res):
-    # extract information from PALM simulation file and identify stations within the given boundary
-    boundary, temps, times = extract_palm_data(palmpath, res)
-    stations = identify_stations(boundary, stationinfo)
-    
-    # generate features within the boundaries based on these stations
+
+def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpath=None, res=None, boundary=None, times=None):
+    if type == 'validation':
+        boundary, temps, times = extract_palm_data(palmpath, res)
+    elif type == 'inference':
+        boundary = format_boundaries(args.boundary)
+        times = time_generation(times)
+    else:
+        warn('Invalid type passed to feature map generation, only "validation" and "inference" accepted')
+        raise ValueError
+
+    # identify stations and generate features within the boundaries based on these stations
+    stations = stations_loc(boundary, stationinfo)
     datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, res)
 
     # create time and datetime maps
@@ -321,27 +338,18 @@ def generate_validation_featuremaps(datapath, geopath, stationinfo, savepath, pa
         datetime_map[idx, :, :] = dt
         time_map[idx, :, :] = times[idx]
 
+    # create feature dictionary and then DataFrame
     maps = {'datetime': np.ravel(datetime_map), 'time': np.ravel(time_map)}
     maps = add_geos(maps, geo)
-    maps = {**maps, 'humidity': np.ravel(humis), 'irradiation': np.ravel(rad), 'moving average': np.ravel(ma),
-            'temperature': np.ravel(temps)}
-
-    # create dataframe and save to given save path
+    maps = {**maps, 'humidity': np.ravel(humis), 'irradiation': np.ravel(rad), 'moving average': np.ravel(ma)}
     feature_dataframe = DataFrame(maps)
-    filename = f'validation_dataset_{datetime[0].year}{datetime[0].month}{datetime[0].day}.{datetime[0].hour}_' \
+
+    # generate filename and save dataset
+    filename = f'{type}_dataset_{datetime[0].year}{datetime[0].month}{datetime[0].day}.{datetime[0].hour}_' \
                f'{datetime[-1].year}{datetime[-1].month}{datetime[-1].day}.{datetime[-1].hour}_{boundary["CH_S"]}-' \
                f'{boundary["CH_N"]}_{boundary["CH_E"]}-{boundary["CH_W"]}.csv'
     savepath = os.path.join(savepath, filename)
     feature_dataframe.to_csv(savepath, sep=';', index=False)
-
-    
-def generate_inference_featuremaps(datapath, geopath, stationinfo, savepath, boundary):
-    # reformat boundaries and determine stations within the boundary
-    boundary = format_boundary(args.boundary)
-    stations = identify_stations(boundary, stationinfo)
-
-    # generate features within the boundaries based on these stations
-    # --> time matching within certain window for measurement files (we need time vector to use functions!)
 
 
 if __name__ == '__main__':
@@ -359,6 +367,8 @@ if __name__ == '__main__':
     # Inference arguments
     parser.add_argument('--boundary', type=float, nargs=4, help='Boundary coordinates for the feature map in the order'
                                                                 '[S latitue, N latitude, E longitude, W longitude]')
+    parser.add_argument('--time', type=str, nargs=2, help='Beginning and end time of the inference period in the '
+                                                          'format %Y/%m/%d_%H:%M')
     # Validation arguments
     parser.add_argument('--palmfile', type=str, help='Path to PALM file')
     parser.add_argument('--res', type=int, help='PALM file resolution [m]')
@@ -373,11 +383,18 @@ if __name__ == '__main__':
 
     if args.mode == 'inference':
         assert args.boundary, 'Boundary information must be provided'
-        generate_inference_featuremaps(args.measurementpath, args.geopath, args.stationinfo, args.savepath)
+        try:
+            times = pd.to_datetime(args.time, format='%Y/%m/%d_%H:%M')
+        except Error as e:
+            warn('Inference times were entered in an unreadable format. Try again with "YYYY/MM/DD_HH:MM"')
+            raise e
+
+        generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath,
+                             boundary=args.boundary, times=times)
 
         
     elif args.mode == 'validation':
         assert os.path.isfile(args.palmfile), 'Valid PALM simulation file must be given'
-        generate_validation_featuremaps(args.measurementpath, args.geopath, args.stationinfo,
-                                        args.savepath, args.palmfile, args.res)
+        generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath,
+                             palmpath=args.palmfile, res=args.res)
 
