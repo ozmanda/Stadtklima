@@ -352,7 +352,7 @@ if __name__ == '__main__':
                         help='Path to station-based measurement data')
     parser.add_argument('--stationinfo', type=str, default='S:/Meteoblue/Data/Messdaten/stations.csv',
                         help='Path to station information')
-    parser.add_argument('--geoapth', type=str, default='S:/Meteoblue/QRF/Data/geodata',
+    parser.add_argument('--geopath', type=str, default='S:/Meteoblue/QRF/Data/geodata',
                         help='Path to spatial / geographic data')
     parser.add_argument('--savepath', type=str, default='VALIDATION', help='Path to save folder')
 
@@ -377,7 +377,7 @@ if __name__ == '__main__':
 
         
     elif args.mode == 'validation':
-        assert os.path.isfile(args.palmpath), 'Valid PALM simulation file must be given'
+        assert os.path.isfile(args.palmfile), 'Valid PALM simulation file must be given'
         generate_validation_featuremaps(args.measurementpath, args.geopath, args.stationinfo,
-                                        args.savepath, args.palmpath, args.res)
+                                        args.savepath, args.palmfile, args.res)
 
