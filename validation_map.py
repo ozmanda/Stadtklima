@@ -9,47 +9,47 @@ from warnings import warn, catch_warnings, simplefilter
 from netCDF4 import Dataset
 from pandas import read_csv, to_datetime, DataFrame
 
-
-def load_data(palmpath, stationdata, res):
+def load_palmdata(palmpath, stationdata, res):
     """
     Extract time, boundary coordinates and stations within this boundary from PALM file
     palmpath: relative path from WD to PALM file
     """
-    if os.path.isfile(f'{palmpath.split(".nc")[0]}_temps.pickle'):
+    filepath = palmpath.split(".nc")[0]
+    if os.path.isfile(f'{filepath}_temps.pickle'):
         print('Loading stored data')
-        temps = np.load(f'{palmpath.split(".nc")[0]}_temps.pickle', allow_pickle=True)
-        times = np.load(f'{palmpath.split(".nc")[0]}_times.pickle', allow_pickle=True)
-        boundary = np.load(f'{palmpath.split(".nc")[0]}_boundary.pickle', allow_pickle=True)
-        stations = np.load(f'{palmpath.split(".nc")[0]}_stations.pickle', allow_pickle=True)
-
+        temps = np.load(f'{filepath}_temps.pickle', allow_pickle=True)
+        times = np.load(f'{filepath}_times.pickle', allow_pickle=True)
+        boundary = np.load(f'{filepath}_boundary.pickle', allow_pickle=True)
+        stations = np.load(f'{filepath}_stations.pickle', allow_pickle=True)
     else:
-        print(f'Loading PALM file {palmpath.split("/")[-1]}')
+        filename = filepath.split('/')[-1]
+        print(f'Loading PALM file {filename}')
         try:
-            palmfile = Dataset(os.path.join(os.getcwd(), palmpath), "r", format="NETCDF4")
+            palmfile = Dataset(palmpath, "r", format="NETCDF4")
         except FileNotFoundError as e:
-            warn(f'File {palmpath.split("/")[-1]} not found, check file path and try again')
+            warn(f'File {filename} not found, check file path and try again')
             raise e
         print(f'   extracting times')
         times = np.array(extract_times(to_datetime(palmfile.origin_time), palmfile['time']))
 
         print('   extracting surface temperatures')
-        temps = extract_surfacetemps(palmfile['theta'])
+        temps = extract_surfacetemps(palmfile['theta_xy'])
 
         print('   determining boundary')
         boundary = np.zeros(shape=(2, 2))
-        boundary[0, 0] = palmfile.origin_x
+        boundary[0, 0] = palmfile.origin_lat
         boundary[0, 1] = boundary[0, 0] + palmfile.dimensions['x'].size * res
-        boundary[1, 0] = palmfile.origin_y
+        boundary[1, 0] = palmfile.origin_lon
         boundary[1, 1] = boundary[1, 0] + palmfile.dimensions['y'].size * res
 
         print('   identifying stations within the boundary')
         stations = stations_loc(boundary, stationdata)
 
         try:
-            temps.dump(f'{palmpath.split(".nc")[0]}_temps.pickle')
-            times.dump(f'{palmpath.split(".nc")[0]}_times.pickle')
-            boundary.dump(f'{palmpath.split(".nc")[0]}_boundary.pickle')
-            stations.dump(f'{palmpath.split(".nc")[0]}_stations.pickle')
+            temps.dump(f'{filepath}_temps.pickle')
+            times.dump(f'{filepath}_times.pickle')
+            boundary.dump(f'{filepath}_boundary.pickle')
+            stations.dump(f'{filepath}_stations.pickle')
         except OverflowError:
             warn('Data larger than 4GiB and cannot be serialised for saving.')
 
@@ -60,7 +60,8 @@ def stations_loc(boundary, stationdata):
     stationscsv = read_csv(stationdata, delimiter=";")
     stations = np.empty(shape=(0, 3))
     for _, row in stationscsv.iterrows():
-        if boundary[0, 0] <= int(row["CH_E"])-2000000 <= boundary[0, 1] and boundary[1, 0] <= int(row["CH_N"])-1000000 <= boundary[1, 1]:
+        if boundary[0, 0] <= int(row["CH_E"])-2000000 <= boundary[0, 1] and \
+           boundary[1, 0] <= int(row["CH_N"])-1000000 <= boundary[1, 1]:
             stations = np.append(stations, [[row["stationid_new"],
                                              int(row["CH_E"])-2000000,
                                              int(row["CH_N"])-1000000]], axis=0)
@@ -317,7 +318,7 @@ def generate_features(datapath, geopath, stations, boundary, times, resolution):
 
 
 def create_dataset(palmpath, savepath, stationdata, datapath, geopath, resolution):
-    palmtemps, times, boundary, stations = load_data(palmpath, stationdata, resolution)
+    palmtemps, times, boundary, stations = load_palmdata(palmpath, stationdata, resolution)
     datetime, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary,
                                                              times, resolution)
     datetime = np.repeat(datetime, geo.shape[2]*geo.shape[3])
@@ -345,6 +346,11 @@ def create_dataset(palmpath, savepath, stationdata, datapath, geopath, resolutio
         'temperature': np.ravel(palmtemps)
     })
 
+    # for idx, geofeature in enumerate(geofeatures):
+    #     df[geofeature] = np.ravel(geo[:, idx, :, :])
+    # df[['humidity', 'irradiation', 'moving_average', 'temperature']] = [np.ravel(humis), np.ravel(rad), np.ravel(ma),
+    #                                                                     np.ravel(palmtemps)]
+
     domain = palmpath.split('_')[-2]
     filename = f'validation_dataset_{datetime[0].year}{datetime[0].month}{datetime[0].day}.{datetime[0].hour}_' \
                f'{datetime[-1].year}{datetime[-1].month}{datetime[-1].day}.{datetime[-1].hour}_Domain-{domain}_' \
@@ -357,8 +363,12 @@ def create_dataset(palmpath, savepath, stationdata, datapath, geopath, resolutio
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-
-    parser.add_argument('--palmpath', type=str, default='Data/mb_8_multi_stations_LCZ_masked_N11_M01.00m.nc',
+    parser.add_argument('--mode', type=str, default='palm', help='The type of validation map to be generated, either '
+                                                                 'from PALM simulation file or from measurement')
+    parser.add_argument('--boundary', nargs=4, type=str, default=None,
+                        help='The boundary for files created from measurements, not required when a PALM simulation '
+                             'file is given')
+    parser.add_argument('--palmpath', type=str, default=None,
                         help='relative path to the PALM file to be used for validation')
     parser.add_argument('--resolution', type=int, default=32, help='resolution of the PALM file in metres')
     parser.add_argument('--datapath', type=str, default='Messdaten/Daten_Meteoblue',
@@ -368,13 +378,26 @@ if __name__ == '__main__':
     parser.add_argument('--stationdata', type=str, default='Messdaten/stations.csv',
                         help='relative path to .csv file containing station information')
     parser.add_argument('--savepath', type=str, default='Data/VALIDATION', help='relative path to save folder')
-
     args = parser.parse_args()
 
-    create_dataset(os.path.join(os.getcwd(), args.palmpath),
-                   os.path.join(os.getcwd(), args.savepath),
-                   os.path.join(os.getcwd(), args.stationdata),
-                   os.path.join(os.getcwd(), args.datapath),
-                   os.path.join(os.getcwd(), args.geopath),
-                   args.resolution)
+    assert os.path.isdir(args.datapath), 'Datapath provided must be a directory'
+    assert os.path.isdir(args.geopath), 'Path to geodata must be a directory'
+    assert os.path.isfile(args.stationdata), 'Path to station information must be a file'
+
+    if not os.path.isdir(args.savepath):
+        os.mkdir(args.savepath)
+    # assert os.path.isdir(args.savepath), 'Path to save folder must be a directory'
+
+    if args.mode == 'palm':
+        assert args.palmpath, 'Path to PALM simulation file must be given'
+        assert args.resolution, 'PALM file resolution must be given'
+        create_dataset(args.palmpath, args.savepath, args.stationdata, args.datapath, args.geopath, args.resolution)
+
+    elif args.mode == 'measurement':
+        assert args.boundary, 'Boundary information must be given when using measurements to create inference dataset'
+        lat_S, lat_N, lon_E, lon_W = args.boundary
+        assert lat_N > lat_S, 'Northern boundary must be larger than southern boundary (latitude)'
+        assert lon_E > lon_W, 'Easern boundary must be larger than western boundary (longitude)'
+
+
 
