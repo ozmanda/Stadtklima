@@ -1,9 +1,9 @@
 import numpy as np
-from typing import Literal
+# from typing import Literal
 from pandas import to_datetime, Timedelta, Timestamp
 from warnings import warn
 
-_types = Literal["lv03", "lv95"]
+# _types = Literal["lv03", "lv95"]
 
 def roundTime(dt, roundTo=5*60):
     """
@@ -18,7 +18,11 @@ def roundTime(dt, roundTo=5*60):
     return to_datetime(dt + Timedelta(seconds=rounding-seconds, microseconds=-dt.microsecond))
 
 
-def lv_to_wgs84(lv_lat, lv_lon, type: _types, h_lv=None):
+def lv95_to_lv03(lv95_lat, lv95_lon):
+    return lv95_lat - 1000000, lv95_lon - 2000000
+
+
+def lv_to_wgs84(lv_lat, lv_lon, type, h_lv=None):
     if type == 'lv03':
         y_prime = (lv03_lon - 600000) / 1000000
         x_prime = (lv03_lat - 200000) / 1000000
@@ -53,7 +57,10 @@ def lv_to_wgs84(lv_lat, lv_lon, type: _types, h_lv=None):
         return wgs84_lat, wgs84_lon
 
 
-def wgs84_to_lv(wgs84_lat, wgs84_lon, type: _types, h_wgs=None):
+def wgs84_to_lv(wgs84_lat, wgs84_lon, type, h_wgs=None, unit='deg'):
+    if unit == 'deg':
+        wgs84_lat *= 3600
+        wgs84_lon *= 3600
     # Breite = latitude = phi, Länge = longitude = lambda
     phi_prime = (wgs84_lat - 169028.66) / 10000
     lambda_prime = (wgs84_lon - 26782.5) / 10000
@@ -79,17 +86,15 @@ def wgs84_to_lv(wgs84_lat, wgs84_lon, type: _types, h_wgs=None):
                + 6.94 * phi_prime
 
     if type == 'lv95' and h_wgs:
-        return lv95_lon, lv95_lat, h_lv
+        return lv95_lat, lv95_lon, h_lv
     elif type == 'lv95' and not h_wgs:
-        return lv95_lon, lv95_lat
+        return lv95_lat, lv95_lon
     elif type == 'lv03':
-        # y = longitude, x = latitude
-        lv03_lon = lv95_lon - 2000000
-        lv03_lat = lv95_lat - 1000000
+        lv03_lat, lv03_lon = lv95_to_lv03(lv95_lat, lv95_lon)
         if h_wgs:
-            return lv03_lon, lv03_lat, h_lv
+            return lv03_lat, lv03_lon, h_lv
         else:
-            return lv03_lon, lv03_lat
+            return lv03_lat, lv03_lon
 
 def DST_TZ(times):
     for idx, time in enumerate(times):
