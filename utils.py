@@ -139,9 +139,15 @@ def moving_average(temps, datetime, timedelta=Timedelta(minutes=30)):
 
 def manhatten_distance(featuremaps):
     times = featuremaps.shape[0]
+    emptytimes = []
     for time in range(times):
         print(f'time {time}/{times}')
-        full = np.where(featuremaps[time, :, :] != 0)  # two lists of indexes where humimaps has a value
+
+        # two lists of indexes where humimaps has a value
+        full = np.where(featuremaps[time, :, :] != 0)
+        if not full[0]:
+            emptytimes.append(time)
+            continue
 
         for idxs, val in np.ndenumerate(featuremaps[time, :, :]):
             maxdist = featuremaps.shape[1] + featuremaps.shape[2] # maximum possible distance between two cells
@@ -159,11 +165,17 @@ def manhatten_distance(featuremaps):
                     mes = 0
                     for _, val in enumerate(nearest):
                         mes += featuremaps[time, full[0][val], full[1][val]]
-                    featuremaps[time, idxs[0], idxs[1]] = mes/len(nearest)
+                    try:
+                        featuremaps[time, idxs[0], idxs[1]] = mes/len(nearest)
+                    except ZeroDivisionError:
+                        featuremaps[time, idxs[0], idxs[1]] = mes / len(nearest)
                 else:
                     featuremaps[time, idxs[0], idxs[1]] = featuremaps[time, full[0][nearest[0]], full[1][nearest[0]]]
             else:
                 continue
+
+    if emptytimes:
+        featuremaps = np.delete(featuremaps, emptytimes, axis=0)
 
     return featuremaps
 

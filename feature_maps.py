@@ -160,9 +160,14 @@ def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, sigma=3):
 def extract_measurement(datapath, times):
     measurementfile = read_csv(datapath, delimiter=";")
 
-    if to_datetime(measurementfile.iloc[0, 0]).tz_localize('UTC') > times[-1] or \
-            to_datetime(measurementfile.iloc[-1, 0]).tz_localize('UTC') < times[0]:
-        return None
+    # catch both tz aware and tz naive
+    try:
+        if to_datetime(measurementfile.iloc[0, 0]).tz_localize('UTC') > times[-1] or \
+                to_datetime(measurementfile.iloc[-1, 0]).tz_localize('UTC') < times[0]:
+            return None
+    except TypeError:
+        if to_datetime(measurementfile.iloc[0, 0]) > times[-1] or to_datetime(measurementfile.iloc[-1, 0]) < times[0]:
+            return None
 
     # round times in csv file for matching
     for idx, row in measurementfile.iterrows():
