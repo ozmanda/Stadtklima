@@ -22,13 +22,17 @@ def lv95_to_lv03(lv95_lat, lv95_lon):
     return lv95_lat - 1000000, lv95_lon - 2000000
 
 
+def lv03_to_lv95(lv03_lat, lv03_lon):
+    return lv03_lat + 1000000, lv03_lon + 2000000
+
+
 def lv_to_wgs84(lv_lat, lv_lon, type, h_lv=None):
     if type == 'lv03':
-        y_prime = (lv03_lon - 600000) / 1000000
-        x_prime = (lv03_lat - 200000) / 1000000
+        y_prime = (lv_lon - 600000) / 1000000
+        x_prime = (lv_lat - 200000) / 1000000
     elif type == 'lv95':
-        y_prime = (lv03_lon - 2600000) / 1000000
-        x_prime = (lv03_lat - 1200000) / 1000000
+        y_prime = (lv_lon - 2600000) / 1000000
+        x_prime = (lv_lat - 1200000) / 1000000
     else:
         warn(f'Invalid type ({type}) passed for conversion (only "lv95" or "lv03" accepted).')
 
@@ -118,6 +122,18 @@ def extract_times(origintime, times):
     return t
 
 
+def remove_emptytimes(maps, times):
+    emptytimes = []
+    for time in range(maps.shape[0]):
+        if not np.sum(maps[time, :, :]):
+            emptytimes.append(time)
+            continue
+    if emptytimes:
+        maps = np.delete(maps, emptytimes, axis=0)
+        times = np.delete(times, emptytimes, axis=0)
+    return maps, times
+
+
 def moving_average(temps, datetime, timedelta=Timedelta(minutes=30)):
     moving_average = []
     for time in datetime:
@@ -139,18 +155,13 @@ def moving_average(temps, datetime, timedelta=Timedelta(minutes=30)):
 
 def manhatten_distance(featuremaps):
     times = featuremaps.shape[0]
-    emptytimes = []
     for time in range(times):
         print(f'time {time}/{times}')
 
         # two lists of indexes where humimaps has a value
         full = np.where(featuremaps[time, :, :] != 0)
-        if not full[0]:
-            emptytimes.append(time)
-            continue
-
         for idxs, val in np.ndenumerate(featuremaps[time, :, :]):
-            maxdist = featuremaps.shape[1] + featuremaps.shape[2] # maximum possible distance between two cells
+            maxdist = featuremaps.shape[1] + featuremaps.shape[2]  # maximum possible distance between two cells
             if val == 0:
                 nearest = []
                 for measurement in range(len(full[0])):
@@ -173,9 +184,6 @@ def manhatten_distance(featuremaps):
                     featuremaps[time, idxs[0], idxs[1]] = featuremaps[time, full[0][nearest[0]], full[1][nearest[0]]]
             else:
                 continue
-
-    if emptytimes:
-        featuremaps = np.delete(featuremaps, emptytimes, axis=0)
 
     return featuremaps
 
