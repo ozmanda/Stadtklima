@@ -1,11 +1,15 @@
 import argparse
 import os
-from warnings import warn
+from warnings import warn, catch_warnings, simplefilter
 import pandas as pd
 from pandas import read_csv, to_datetime, DataFrame, Timedelta
 import numpy as np
 from netCDF4 import Dataset
-from utils import lv_to_wgs84, wgs84_to_lv, extract_times, extract_surfacetemps, roundTime, manhatten_distance, moving_average
+from utils import lv03_to_lv95, wgs84_to_lv, extract_times, extract_surfacetemps, roundTime, manhatten_distance, moving_average, remove_emptytimes
+import rasterio
+from datetime import datetime
+from irradiation import irradiationmap
+from scipy import signal
 
 # GLOBAL VARIABLES
 geofeatures = ['altitude', 'buildings', 'buildings_10', 'buildings_30', 'buildings_100', 'buildings_200',
@@ -126,12 +130,16 @@ def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, sigma=3):
         featuremap = rasterio.open(os.path.join(geopath, f'{geofeature}.tif'))
         originlat = featuremap.meta['transform'][5]  # gives northern boundary
         originlon = featuremap.meta['transform'][2]  # gives western boundary
+        # transform to LV95 coordinates
+        originlat, originlon = lv03_to_lv95(originlat, originlon)
         featuremap = featuremap.read()
         featuremap[featuremap == -9999] = 0
 
         if boundary['CH_E'] < originlon or originlon + featuremap.shape[1] < boundary['CH_W'] or \
                 originlat < boundary['CH_S'] or originlat-featuremap.shape[2] > boundary['CH_N']:
             warn(f'geofeature map {geofeature} incomplete', Warning)
+            print(f'Border geomap: N {originlat}, S {originlat-featuremap.shape[2]}, W {originlon}, E {originlon + featuremap.shape[1]}')
+            print(f'Border featuremap: N {boundary["CH_N"]}, S {boundary["CH_S"]}, W {boundary["CH_W"]}, E {boundary["CH_E"]}')
             raise ValueError
 
         lons = [int(np.round(boundary['CH_E'] - originlon)), int(np.round(boundary['CH_W'] - originlon))]
@@ -162,8 +170,8 @@ def extract_measurement(datapath, times):
 
     # catch both tz aware and tz naive
     try:
-        if to_datetime(measurementfile.iloc[0, 0]).tz_localize('UTC') > times[-1] or \
-                to_datetime(measurementfile.iloc[-1, 0]).tz_localize('UTC') < times[0]:
+        if to_datetime(measurementfile.iloc[0, 0]) > times[-1].tz_localize('UTC') or \
+                to_datetime(measurementfile.iloc[-1, 0]) < times[0].tz_localize('UTC'):
             return None
     except TypeError:
         if to_datetime(measurementfile.iloc[0, 0]) > times[-1] or to_datetime(measurementfile.iloc[-1, 0]) < times[0]:
@@ -171,7 +179,7 @@ def extract_measurement(datapath, times):
 
     # round times in csv file for matching
     for idx, row in measurementfile.iterrows():
-        measurementfile.iloc[idx, 0] = roundTime(to_datetime(row['datetime'])).tz_localize('UTC')
+        measurementfile.iloc[idx, 0] = roundTime(to_datetime(row['datetime']))
 
     measurements = []
     for time in times:
@@ -181,20 +189,24 @@ def extract_measurement(datapath, times):
         else:
             measurements.append(measurementfile.loc[incsv].iloc[0, 1])
 
+    # check that measurements exist
+    if np.sum(measurements) == 0:
+        return None
+
     # fill in empty spots using neighbouring values, catches all possible cases
-    for idx, mes in enumerate(measurements):
-        if mes != 0:
-            continue
-        elif idx == 0 and mes == 0:
-            measurements[idx] = measurements[idx + 1]
-        elif idx == len(measurements) - 1 and mes == 0:
-            measurements[idx] = measurements[idx - 1]
-        elif mes == 0 and measurements[idx - 1] != 0 and measurements[idx + 1] == 0:
-            measurements[idx] = measurements[idx - 1]
-        elif mes == 0 and measurements[idx - 1] == 0 and measurements[idx + 1] != 0:
-            measurements[idx] = measurements[idx + 1]
-        elif mes == 0 and measurements[idx - 1] != 0 and measurements[idx + 1] != 0:
-            measurements[idx] = (measurements[idx - 1] + measurements[idx + 1]) / 2
+    # for idx, mes in enumerate(measurements):
+    #     if mes != 0:
+    #         continue
+    #     elif idx == 0 and mes == 0:
+    #         measurements[idx] = measurements[idx + 1]
+    #     elif idx == len(measurements) - 1 and mes == 0:
+    #         measurements[idx] = measurements[idx - 1]
+    #     elif mes == 0 and measurements[idx - 1] != 0 and measurements[idx + 1] == 0:
+    #         measurements[idx] = measurements[idx - 1]
+    #     elif mes == 0 and measurements[idx - 1] == 0 and measurements[idx + 1] != 0:
+    #         measurements[idx] = measurements[idx + 1]
+    #     elif mes == 0 and measurements[idx - 1] != 0 and measurements[idx + 1] != 0:
+    #         measurements[idx] = (measurements[idx - 1] + measurements[idx + 1]) / 2
 
     return measurements
 
@@ -223,25 +235,37 @@ def generate_measurementmaps(datapath, stations, times, boundary, purpose):
                  f'measurements for this time period, skipping station', Warning)
             continue
         try:
-            idx = statnames.index(stationname)
+            # idx = statnames.index(stationname)
             idxlat = int(int(stations[stationname]['lat']) - boundary['CH_S'])
             idxlon = int(int(stations[stationname]['lon']) - boundary['CH_E'])
             measurementmaps[:, idxlon, idxlat] = measurements
-        except Exception:
+        except Exception as e:
             warn(f'Adding humidities for station {stationname} failed, skipping this station.')
             continue
 
-    return measurementmaps
-    
+    if np.sum(measurementmaps) == 0:
+        return None
+
+    measurementmaps, times = remove_emptytimes(measurementmaps, times)
+
+    return measurementmaps, times
+
+
 def generate_features(datapath, geopath, stations, boundary, times, resolution=None):
     print('Temperatures....................')
     if 'movingaverage.pickle' not in os.listdir(os.getcwd()):
         # TEMPERATURE MEASUREMENTS
         if 'temps_manhattan.pickle' not in os.listdir(os.getcwd()):
-            temps = generate_measurementmaps(datapath, stations, times, boundary, 'temp')
-            print('Adjusting temperature map resolution')
+            temps, times = generate_measurementmaps(datapath, stations, times, boundary, 'temp')
+            if temps is None:
+                warn('No temperature measurements found for the given boundary and times')
+                raise ValueError
+            # print('Adjusting temperature map resolution')
             # temps = res_adjustment(temps, res)
             print('\nCalculating Manhattan distance for temperature maps')
+            # TIMES REDUCED FOR TESTING!!!!
+            times = times[0:10]
+            temps = temps[0:10]
             temps = manhatten_distance(temps)
             try:
                 temps.dump(os.path.join(os.getcwd(), 'temps_manhattan.pickle'))
@@ -269,10 +293,13 @@ def generate_features(datapath, geopath, stations, boundary, times, resolution=N
     # HUMIDITIY MEASUREMENTS
     print('Humidities..........................')
     if 'humimaps.pickle' not in os.listdir(os.getcwd()):
-        humimaps = generate_measurementmaps(datapath, stations, times, boundary, 'humi')
+        humimaps, times = generate_measurementmaps(datapath, stations, times, boundary, 'humi')
         print('Adjusting humidity map resolution')
         # humimaps = res_adjustment(humimaps, res)
         print('\nCalculating Manhattan distance for humidity maps')
+        # TIMES REDUCED FOR TESTING!!!!
+        times = times[0:10]
+        humimaps = humimaps[0:10]
         humimaps = manhatten_distance(humimaps)
         try:
             humimaps.dump(os.path.join(os.getcwd(), 'humimaps.pickle'))
@@ -288,10 +315,10 @@ def generate_features(datapath, geopath, stations, boundary, times, resolution=N
             geofeaturelist = ["altitude", "buildings", "forests", "pavedsurfaces", "surfacewater", "urbangreen"]
             convs = [10, 30, 100, 200, 500]
             geomaps = generate_geomap(geopath, boundary, humimaps.shape, geofeaturelist, convs)
-        try:
-            geomaps.dump(os.path.join(os.getcwd(), 'geomaps_nores.pickle'))
-        except OverflowError:
-            warn('Data larger than 4GiB and cannot be serialised for saving.')
+            try:
+                geomaps.dump(os.path.join(os.getcwd(), 'geomaps_nores.pickle'))
+            except OverflowError:
+                warn('Data larger than 4GiB and cannot be serialised for saving.')
         else:
             geomaps = np.load(os.path.join(os.getcwd(), 'geomaps_nores.pickle'), allow_pickle=True)
 
@@ -326,7 +353,7 @@ def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpat
     if type == 'validation':
         boundary, temps, times = extract_palm_data(palmpath, res)
     elif type == 'inference':
-        boundary = format_boundaries(args.boundary)
+        boundary = format_boundaries(boundary)
         times = time_generation(times)
     else:
         warn('Invalid type passed to feature map generation, only "validation" and "inference" accepted')
@@ -390,7 +417,7 @@ if __name__ == '__main__':
         assert args.boundary, 'Boundary information must be provided'
         try:
             times = pd.to_datetime(args.time, format='%Y/%m/%d_%H:%M')
-        except Error as e:
+        except Exception as e:
             warn('Inference times were entered in an unreadable format. Try again with "YYYY/MM/DD_HH:MM"')
             raise e
 
