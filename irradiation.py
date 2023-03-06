@@ -7,6 +7,10 @@ from pysolar import solar, radiation
 
 
 def irradiationcalc(times, targetlat, targetlon):
+    # if irradiationcalc throws a TypeError somewhere altitude calculation, the problem is likely caused by pd.Timestamp
+    #   in the lines 97 & 723 of solartime.py from the pysolar package, where .utctimetuple() doesn't work for a
+    #   tz-aware Timestamp (https://github.com/pandas-dev/pandas/issues/32174)
+    #   add "if when.tzinfo is None else when.timetuple()" to the end of when.utctimetuple() to get the expected result
     targetlat, targetlon = lv_to_wgs84(targetlat, targetlon, type='lv95')
     irradiation = list()
     for time in times:
