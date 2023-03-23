@@ -264,7 +264,7 @@ if __name__ == '__main__':
         
     elif args.mode == 'validation':
         assert os.path.isfile(args.palmfile), 'Valid PALM simulation file must be given'
-        picklepath = f'PALM_{os.path.split(args.palmfile)[0]}'
+        picklepath = f'PALM_{os.path.split(args.palmfile)[1]}'
         generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath, picklepath,
                              palmpath=args.palmfile, res=args.res)
 
