@@ -40,7 +40,10 @@ def extract_palm_data(palmpath, res):
     times = np.array(extract_times(to_datetime(palmfile.origin_time), palmfile['time']))
 
     print('   extracting surface temperatures...........')
-    temps = extract_surfacetemps(palmfile['theta_xy'])
+    try:
+        temps = extract_surfacetemps(palmfile['theta_xy'])
+    except IndexError:
+        temps = extract_surfacetemps(palmfile['theta'])
 
     return boundary, times, temps
 
