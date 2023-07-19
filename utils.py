@@ -1,7 +1,10 @@
 import numpy as np
+import time
 # from typing import Literal
 from pandas import to_datetime, Timedelta, Timestamp
 from warnings import warn
+from netCDF4 import Dataset
+from scipy.spatial.distance import cdist
 
 # _types = Literal["lv03", "lv95"]
 
@@ -123,6 +126,7 @@ def extract_times(origintime, times):
 
 
 def remove_emptytimes(maps, times):
+    print(f'remove_emptylines before: {times.shape}')
     emptytimes = []
     for time in range(maps.shape[0]):
         if not np.sum(maps[time, :, :]):
@@ -131,6 +135,7 @@ def remove_emptytimes(maps, times):
     if emptytimes:
         maps = np.delete(maps, emptytimes, axis=0)
         times = np.delete(times, emptytimes, axis=0)
+    print(f'remove_emptylines after: {times.shape}')
     return maps, times
 
 
@@ -153,7 +158,94 @@ def moving_average(temps, datetime, timedelta=Timedelta(minutes=30)):
     return moving_average
 
 
+def manhatten_distance_(featuremaps):
+    print(f'featuremaps shape: {featuremaps.shape}')
+    times = featuremaps.shape[0]
+    for time in range(times):
+        print(f'time {time}/{times}')
+        start_timer()
+        full = np.transpose(np.array(np.where(featuremaps[time, :, :] != 0)))
+        for idxs, val in np.ndenumerate(featuremaps[time]):
+            if not val:
+                dists = cdist(np.array([idxs]), full, 'cityblock').astype(int)
+                nearest = np.where(dists == dists.min())[1]
+                nearest_vals = featuremaps[time, full[nearest][:, 0], full[nearest][:, 1]]
+                featuremaps[time, idxs[0], idxs[1]] = np.mean(nearest_vals)
+        print('Manhattan Distance Function: ', end=' ')
+        end_timer()
+    return featuremaps
+
+
 def manhatten_distance(featuremaps):
+    times = featuremaps.shape[0]
+    tic1 = time.perf_counter()
+    for t in range(times):
+        tic2 = time.perf_counter()
+        print(f'time {t+1}/{times}')
+        tic3 = time.perf_counter()
+        full = np.where(featuremaps[t, :, :] != 0)
+        toc3 = time.perf_counter()
+        print(f'Time for np.where for whole map: {toc3 - tic3:0.4f} seconds')
+        for idxs, val in np.ndenumerate(featuremaps[t]):
+            if val:
+                featuremaps[t, idxs[0], idxs[1]] = val
+                continue
+            else:
+                filled = False
+                d = 1
+                rows = []
+                cols = []
+                tic3 = time.perf_counter()
+                print('While Loop started')
+                while not filled:
+                    lims = {'row_start': idxs[0]-d,
+                            'row_end': idxs[0]+d,
+                            'col_start': idxs[1]-d,
+                            'col_end': idxs[1]+d}
+                    tic4 = time.perf_counter()
+                    # if one of the row numbers correspond to the row number of a cell with value
+                    if lims['row_start'] in full[0] or lims['row_end'] in full[0]:
+                        # find idx of matching row
+                        tic5 = time.perf_counter()
+                        pos = np.where([x == lims['row_start'] or x == lims['row_end'] for x in full[0]])[0]
+                        toc5 = time.perf_counter()
+                        print(f'Time for row np.where evaluation: {toc5-tic5:0.4f} seconds')
+                        for p in pos:
+                            if full[1][p] in range(lims['col_start'], lims['col_end'] + 1):
+                                rows.append(full[0][p])
+                                cols.append(full[1][p])
+                    toc4 = time.perf_counter()
+                    print(f'Time for row evaluation: {toc4 - tic4:0.4f}')
+                    tic4 = time.perf_counter()
+                    if lims['col_start'] in full[1] or lims['col_end'] in full[1]:
+                        # find idx of matching column
+                        tic5 = time.perf_counter()
+                        pos = np.where([x == lims['col_start'] or x == lims['col_end'] for x in full[1]])[0]
+                        toc5 = time.perf_counter()
+                        print(f'Time for column np.where evaluation: {toc5-tic5:0.4f} seconds')
+                        for p in pos:
+                            if full[0][p] in range(lims['row_start'] + 1, lims['row_end']):
+                                rows.append(full[0][p])
+                                cols.append(full[1][p])
+                    toc4 = time.perf_counter()
+                    print(f'Time for column evaluation: {toc4 - tic4:0.4f}')
+                    if rows and cols:
+                        filled = True
+                    else:
+                        d += 1
+                toc3 = time.perf_counter()
+                print(f'Time for while loop: {toc3 - tic3:04f} seconds')
+                featuremaps[t, idxs[0], idxs[1]] = np.mean(featuremaps[t, rows, cols])
+        toc2 = time.perf_counter()
+        print(f'Time for one timestep: {toc2 - tic2:0.4f} seconds')
+
+    toc1 = time.perf_counter()
+    print(f'Runtime for {len(times)} timesteps: {toc1 - tic1:0.4f} seconds')
+
+    return featuremaps
+
+
+def manhatten_distance_old(featuremaps):
     times = featuremaps.shape[0]
     for time in range(times):
         print(f'time {time}/{times}')
@@ -188,7 +280,12 @@ def manhatten_distance(featuremaps):
     return featuremaps
 
 
-def extract_surfacetemps(temps):
+def extract_surfacetemps(palmpath):
+    palmfile = Dataset(palmpath, 'r', format='NETCDF4')
+    try:
+        temps = palmfile['theta_xy']
+    except IndexError:
+        temps = palmfile['theta']
     surf_temps = np.zeros(shape=(temps.shape[0], temps.shape[2], temps.shape[3]))
     for time in range(temps.shape[0]):
         for idxs, _ in np.ndenumerate(temps[time, 0, :, :]):
@@ -202,3 +299,33 @@ def extract_surfacetemps(temps):
     surf_temps = np.flip(surf_temps, axis=1)
 
     return surf_temps
+
+
+def manhatten_distance(featuremaps):
+    times = featuremaps.shape[0]
+    full_array = np.zeros(featuremaps.shape)
+    for time in range(times):
+        print(f'time {time}/{times}')
+        full = np.transpose(np.array(np.where(featuremaps[time, :, :] != 0)))
+        for idxs, val in np.ndenumerate(featuremaps[time]):
+            if val:
+                full_array[time, idxs[0], idxs[1]] = val
+                continue
+            else:
+                dists = cdist(np.array([idxs]), full).astype(int)
+                nearest = np.where(dists == dists.min())[1]
+                nearest_vals = featuremaps[time, full[nearest][:, 0], full[nearest][:, 1]]
+                full_array[time, idxs[0], idxs[1]] = np.mean(nearest_vals)
+    return full_array
+
+
+def start_timer():
+    global _start_time
+    _start_time = time.time()
+
+
+def end_timer():
+    t_sec = round(time.time() - _start_time)
+    (t_min, t_sec) = divmod(t_sec, 60)
+    (t_hour, t_min) = divmod(t_min, 60)
+    print(f'Time: {t_hour}:{t_min}:{t_sec}')
