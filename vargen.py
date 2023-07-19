@@ -71,11 +71,12 @@ def file_matching(tempfile, humifile):
     return newtemp, newhumi
 
 
-def create_lists(tempfile, stationid, geopath, geoconvs):
+def create_lists(tempfile, stationid, geopath, geoconvs, infofile):
     try:
         geofeatures, targetlat, targetlon = get_geofeatures(stationid, geopath, len(tempfile), geoconvs,
                                                             ["altitude", "buildings", "forests",
-                                                             "pavedsurfaces", "surfacewater", "urbangreen"])
+                                                             "pavedsurfaces", "surfacewater", "urbangreen"],
+                                                            infofile)
     except ValueError or FileNotFoundError as e:
         raise e
 
@@ -85,7 +86,7 @@ def create_lists(tempfile, stationid, geopath, geoconvs):
     return times, geofeatures, temps, targetlat, targetlon
 
 
-def generate_dfs(datapath, geopath, savepath, geoconvs):
+def generate_dfs(datapath, geopath, savepath, geoconvs, infofile):
     filenames = os.listdir(datapath)
 
     for filename in filenames:
@@ -115,10 +116,12 @@ def generate_dfs(datapath, geopath, savepath, geoconvs):
                 tempfile, humifile = file_matching(tempfile, humifile)
 
             try:
-                times, geofeatures, temps, targetlat, targetlon = create_lists(tempfile, stationid, geopath, geoconvs)
+                times, geofeatures, temps, targetlat, targetlon = create_lists(tempfile, stationid, geopath,
+                                                                               geoconvs, infofile)
                 humi = humifile['humi'].to_list()
-                irad = irradiationcalc(times, targetlat, targetlon, geofeatures[0, 0])
-            except Exception:
+                irad = irradiationcalc(times, targetlat, targetlon)
+            except Exception as e:
+                print(f'Station {stationid} failed, continuing with next station.')
                 continue
 
 
@@ -163,11 +166,19 @@ if __name__ == '__main__':
                         help='relative path to measurement data')
     parser.add_argument('--geopath', type=str, default='Data/geodata',
                         help='relative path to the static / geographic data')
+    parser.add_argument('--infofile', type=str, default=None)
     parser.add_argument('--savepath', type=str, default='Data/MeasurementFeatures_v6',
                         help='relative path to save folder')
     args = parser.parse_args()
 
+    assert os.path.isdir(args.datapath), 'Invalid path to measurement data'
+    assert os.path.isdir(args.geopath), 'Invalid path to static / geographic data'
+    assert os.path.isfile(args.infofile), 'Invalid station file'
+    if not os.path.isdir(args.savepath):
+        os.mkdir(args.savepath)
+
     generate_dfs(os.path.join(os.getcwd(), args.datapath),
                  os.path.join(os.getcwd(), args.geopath),
                  os.path.join(os.getcwd(), args.savepath),
-                 geoconvs=[10, 30, 100, 200, 500])
+                 geoconvs=[10, 30, 100, 200, 500],
+                 infofile=args.infofile)
