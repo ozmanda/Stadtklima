@@ -75,7 +75,6 @@ def stationdata(datapath, stationid, start, end):
         startidx = 0
         endidx = len(stationcsv)
 
-
     return stationcsv.iloc[startidx:endidx, :]
 
 
@@ -106,9 +105,7 @@ def create_dataset(datapath, palmpath, filename, stationids, savepath):
     return dataset
 
 
-
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--palmpath', type=str, default='Data', help='relative path to folder containing PALM files')
     parser.add_argument('--palmfile', type=str, default='mb_8_multi_stations_LCZ_masked_N03_M01.00m.nc',
