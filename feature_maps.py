@@ -2,14 +2,14 @@ import os
 import _pickle as cPickle
 import argparse
 import pickle
-
+from utils import manhatten_distance
 import numpy as np
 import pandas as pd
 from warnings import warn
 from netCDF4 import Dataset
 from pandas import DataFrame, to_datetime, Timedelta, read_csv
 from utils import wgs84_to_lv, extract_times, extract_surfacetemps
-from feature_generation import tempgen, humigen, magen, geogen, radgen
+from feature_generation import tempgen, humigen, geogen, radgen
 
 
 # GLOBAL VARIABLES
@@ -36,16 +36,10 @@ def extract_palm_data(palmpath, res):
     CH_W = CH_E + palmfile.dimensions['y'].size * res
     boundary = {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
 
-    print('   extracting times..........................')
+    print('    extracting times.........................')
     times = np.array(extract_times(to_datetime(palmfile.origin_time), palmfile['time']))
 
-    print('   extracting surface temperatures...........')
-    try:
-        temps = extract_surfacetemps(palmfile['theta_xy'])
-    except IndexError:
-        temps = extract_surfacetemps(palmfile['theta'])
-
-    return boundary, times, temps
+    return boundary, times
 
 
 def stations_loc(boundary, stationdata):
@@ -78,80 +72,75 @@ def format_boundaries(boundary):
     return {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
 
 
-def generate_features(datapath, geopath, stations, boundary, times, picklepath, resolution=None):
-    # case where this specific combination has not yet been generated
-    if not os.path.isdir(picklepath):
-        os.mkdir(picklepath)
-        print('Temperatures........................')
-        temps, times = tempgen(datapath, stations, times, boundary)
-        # calculate moving average with measured temps
-        ma = magen(temps, times)
-        print('Humidities..........................')
-        humimaps, times = humigen(datapath, stations, times, boundary)
-        print('Geofeatures.........................')
-        geomaps = geogen(geopath, boundary, humimaps)
-        irrad = radgen(boundary, geomaps, times)
+def generate_features(datapath, geopath, stations, boundary, times, folder, resolution=None):
+    # TEMEPRATURE GENERATION
+    print('Temperatures........................')
+    if os.path.isfile(os.path.join(folder, 'temps.z')):
+        # load temperatures and times
+        with open(os.path.join(folder, 'temps.z'), 'rb') as file:
+            temps = cPickle.load(file)
+            file.close()
+        with open(os.path.join(folder, 'times.z'), 'rb') as file:
+            times = cPickle.load(file)
+            file.close()
 
-    # case where this folder has been created, i.e. the generation of this data has been done before or at least started
+        # if manhattan distance calculations done, load otherwise call function
+        if os.path.isfile(os.path.join(folder, 'ma.z')):
+            with open(os.path.join(folder, 'ma.z'), 'rb') as file:
+                ma = cPickle.load(file)
+                file.close()
+        else:
+            print('Moving average..................')
+            ma = manhatten_distance(temps)
     else:
-        print('Temperatures........................')
-        if 'movingaverage.pickle' not in os.listdir(os.getcwd()):
-            # TEMPERATURE MEASUREMENTS
-            if 'temps_manhattan.pickle' not in os.listdir(os.getcwd()):
-                temps, times = tempgen(datapath, stations, times, boundary)
-            else:
-                try:
-                    temps, times = np.load(os.path.join(os.getcwd(), 'temps_manhattan.pickle'), allow_pickle=True)
-                except OSError:
-                    temps, times = tempgen(datapath, stations, times, boundary)
+        # temperature and time generation
+        temps, times = tempgen(datapath, stations, times, boundary, resolution)
+        # save intermediate step
+        with open(os.path.join(folder, 'temps.z'), 'wb') as file:
+            cPickle.dump(temps, file, protocol=pickle.HIGHEST_PROTOCOL)
+            file.close()
+        with open(os.path.join(folder, 'times.z'), 'wb') as file:
+            cPickle.dump(times, file, protocol=pickle.HIGHEST_PROTOCOL)
+            file.close()
 
-            # calculate moving average with measured temps
-            ma = magen(temps, times)
+        # generate manhattan distance maps and save
+        ma = manhatten_distance(temps)
+        with open(os.path.join(folder, 'ma.z'), 'wb') as file:
+            cPickle.dump(ma, file, protocol=pickle.HIGHEST_PROTOCOL)
+            file.close()
 
-        else:
-            try:
-                ma = np.load(os.path.join(os.getcwd(), 'movingaverage.pickle'), allow_pickle=True)
-            except OSError:
-                try:
-                    temps, times = np.load(os.path.join(os.getcwd(), 'temps_manhattan.pickle'), allow_pickle=True)
-                except OSError:
-                    temps, times = tempgen(datapath, stations, times, boundary)
-                ma = magen(temps, times)
+    print('Humidities..........................')
+    if os.path.isfile(os.path.join(folder, 'humimaps.z')):
+        with open(os.path.join(folder, 'humimaps.z'), 'rb') as file:
+            humimaps = cPickle.load(file)
+            file.close()
+    else:
+        humimaps, times = humigen(datapath, stations, times, boundary, resolution)
+        with open(os.path.join(folder, 'humimaps.z'), 'wb') as file:
+            cPickle.dump(humimaps, file, protocol=pickle.HIGHEST_PROTOCOL)
+            file.close()
 
+    print('Geofeatures.........................')
+    if os.path.isfile(os.path.join(folder, 'geomaps.z')):
+        with open(os.path.join(folder, 'geomaps.z'), 'rb') as file:
+            geomaps = cPickle.load(file)
+            file.close()
+    else:
+        geomaps = geogen(geopath, boundary, humimaps)
+        with open(os.path.join(folder, 'geomaps.z'), 'wb') as file:
+            cPickle.dump(geomaps, file, protocol=pickle.HIGHEST_PROTOCOL)
+            file.close()
 
-        # HUMIDITIY MEASUREMENTS
-        print('Humidities..........................')
-        if 'humimaps.pickle' not in os.listdir(os.getcwd()):
-            humimaps, times = humigen(datapath, stations, times, boundary)
-        else:
-            try:
-                humimaps = np.load(os.path.join(os.getcwd(), 'humimaps.pickle'), allow_pickle=True)
-            except OSError:
-                humimaps, times = humigen(datapath, stations, times, boundary)
-
-        # GEOFEATURES AND IRRADIATION
-        print('Geofeatures.........................')
-        if 'irradiation.pickle' not in os.listdir(os.getcwd()):
-            if 'geomaps_nores.pickle' not in os.listdir(os.getcwd()):
-                geomaps = geogen(geopath, boundary, humimaps)
-            else:
-                try:
-                    print('    Loading geomaps from .pickle....')
-                    geomaps = np.load(os.path.join(os.getcwd(), 'geomaps_nores.pickle'), allow_pickle=True)
-                except OSError:
-                    geomaps = geogen(geopath, boundary, humimaps)
-            irrad = radgen(boundary, geomaps, times)
-
-        else:
-            try:
-                geomaps = np.load(os.path.join(os.getcwd(), "geomaps_nores.pickle"), allow_pickle=True)
-            except OSError:
-                geomaps = geogen(geopath, boundary, humimaps)
-
-            try:
-                irrad = np.load(os.path.join(os.getcwd(), 'irradiation.pickle'), allow_pickle=True)
-            except OSError:
-                irrad = radgen(boundary, geomaps, times)
+    print('Irradiation.........................')
+    if os.path.isfile(os.path.join(folder, 'irrad.z')):
+        with open(os.path.join(folder, 'irrad.z'), 'rb') as file:
+            irrad = cPickle.load(file)
+            file.close()
+    else:
+        irrad = radgen(boundary, geomaps, times)
+        with open(os.path.join(folder, 'irrad.z'), 'wb') as file:
+            cPickle.dump(irrad, file, protocol=pickle.HIGHEST_PROTOCOL)
+            file.close()
 
     # separation of time and datetime
     datetime_full = times.copy()
@@ -176,20 +165,39 @@ def add_geos(dict, geos):
 
 # WRAPPER FUNCTIONS ---------------------------------------------------------------------------------------------------
 
-def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, picklepath, palmpath=None, res=None,
+def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpath=None, res=None,
                          boundary_wgs84=None, times=None):
+    # Set folder name for intermediate steps, boundaries and times for both validation and inference cases
     if type == 'validation':
-        boundary, temps, times = extract_palm_data(palmpath, res)
+        folder = f'VALIDATION/{os.path.basename(palmpath).split(".nc")[0]}'
+        boundary, times = extract_palm_data(palmpath, res)
     elif type == 'inference':
+        folder = f'INFERENCE/{args.boundary[0]}-{args.boundary[1]}_{args.boundary[2]}_{args.boundary[3]}-' \
+                 f'{args.time[0].replace("/", "-")}_{args.time[1].replace("/", "-")}'
         boundary = format_boundaries(boundary_wgs84)
         times = time_generation(times)
     else:
         warn('Invalid type passed to feature map generation, only "validation" and "inference" accepted')
         raise ValueError
 
-    # identify stations and generate features within the boundaries based on these stations
+    # Ensure folder exists
+    if not os.path.isdir(folder):
+        os.mkdir(folder)
+
+    # identify stations and generate featuremaps within the boundaries based on these stations
     stations = stations_loc(boundary, stationinfo)
-    datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, picklepath, res)
+    datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, folder, res)
+
+    # Extract surface temperature from PALM simulation for validation type
+    if type == 'validation':
+        print('    extracting PALM surface temperatures..........')
+        try:
+            temps = extract_surfacetemps(palmpath)
+        except IndexError:
+            temps = extract_surfacetemps(palmpath)
+        with open(os.path.join(folder, 'PALM_surfacetemps.z'), 'wb') as file:
+            cPickle.dump(temps, file, protocol=pickle.HIGHEST_PROTOCOL)
+            file.close()
 
     # create time and datetime maps
     datetime_map = np.empty(shape=rad.shape, dtype=np.dtype('U20'))
@@ -207,7 +215,7 @@ def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, picklep
     # create feature dictionary - unflattened version
     maps = {'datetime': datetime_map, 'time': time_map}
     maps = add_geos(maps, geo)
-    maps = {**maps, 'humidity': humis, 'irradiation': rad, 'moving_average': ma}
+    maps = {**maps, 'humidity': humis, 'irradiation': rad, 'moving_average': ma, 'temperature': temps}
 
     # generate filename and save dataset
     starttime = f'{datetime_map[0, 0, 0][0:10]}-{datetime_map[0, 0, 0][11:16]}'.replace(':', '.')
@@ -252,22 +260,18 @@ if __name__ == '__main__':
 
     if args.mode == 'inference':
         assert args.boundary, 'Boundary information must be provided'
-        picklepath = f'Data/{args.boundary[0]}-{args.boundary[1]}_{args.boundary[2]}_{args.boundary[3]}-' \
-                     f'{args.time[0].replace("/", "-")}_{args.time[1].replace("/", "-")}'
-        picklepath = picklepath.replace(':', '.')
         try:
             times = pd.to_datetime(args.time, format='%Y/%m/%d_%H:%M')
         except Exception as e:
             warn('Inference times were entered in an unreadable format. Try again with "YYYY/MM/DD_HH:MM"')
             raise e
 
-        generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath, picklepath,
+        generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath,
                              boundary_wgs84=args.boundary, times=times)
 
         
     elif args.mode == 'validation':
         assert os.path.isfile(args.palmfile), 'Valid PALM simulation file must be given'
-        picklepath = f'PALM_{os.path.split(args.palmfile)[1]}'
-        generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath, picklepath,
+        generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath,
                              palmpath=args.palmfile, res=args.res)
 
