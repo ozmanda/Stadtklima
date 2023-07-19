@@ -102,19 +102,24 @@ def extract_measurement(datapath, times):
 
     # catch both tz aware and tz naive
     try:
-        if to_datetime(measurementfile.iloc[0, 0]) > times[-1].tz_localize('UTC') or \
-                to_datetime(measurementfile.iloc[-1, 0]) < times[0].tz_localize('UTC'):
+        # print(f'{to_datetime(measurementfile.iloc[0, 0]).tz_localize("UTC")} > {times[-1]}')
+        # print(f'{to_datetime(measurementfile.iloc[-1, 0]).tz_localize("UTC")} < {times[0]}')
+        if to_datetime(measurementfile.iloc[0, 0]).tz_localize('UTC') > times[-1] or \
+                to_datetime(measurementfile.iloc[-1, 0]).tz_localize('UTC') < times[0]:
             return None
-    except TypeError:
+    except TypeError or AttributeError:
         if to_datetime(measurementfile.iloc[0, 0]) > times[-1] or to_datetime(measurementfile.iloc[-1, 0]) < times[0]:
             return None
 
     # round times in csv file for matching
+    # print(measurementfile.iloc[0:10, 0])
     for idx, row in measurementfile.iterrows():
-        measurementfile.iloc[idx, 0] = roundTime(to_datetime(row['datetime']))
+        measurementfile.iloc[idx, 0] = roundTime(to_datetime(row['datetime'])).tz_localize('UTC')
+    # print(measurementfile.iloc[0:10, 0])
 
     measurements = []
     for time in times:
+        # print(measurementfile['datetime'])
         incsv = measurementfile['datetime'] == time
         if np.sum(incsv) == 0:
             measurements.append(0)
@@ -143,12 +148,11 @@ def extract_measurement(datapath, times):
     return measurements
 
 
-def generate_measurementmaps(datapath, stations, times, boundary, purpose):
-    statnames = stations.keys()
+def generate_measurementmaps(datapath, stations, times, boundary, resolution, purpose):
     # create empty array for humidities
     measurementmaps = np.zeros(shape=(len(times),
-                               int(boundary['CH_W'] - boundary['CH_E']),
-                               int(boundary['CH_N'] - boundary['CH_S'])))
+                               int((boundary['CH_W'] - boundary['CH_E']) / resolution),
+                               int((boundary['CH_N'] - boundary['CH_S']) / resolution)))
     s = 0
     for file in os.listdir(datapath):
         if not file.startswith(purpose):
@@ -161,6 +165,7 @@ def generate_measurementmaps(datapath, stations, times, boundary, purpose):
         print(f'Extracting {"humidities" if purpose == "humi" else "temperatures"} '
               f'({s}/{len(stations.keys())}) for {stationname} ')
 
+        # print(f'generate_measurementmaps: {times.shape}')
         measurements = extract_measurement(os.path.join(datapath, file), times)
         if measurements is None:
             warn(f'Station {stationname} does not have any {"humidity" if purpose == "humi" else "temperature"} '
@@ -168,55 +173,33 @@ def generate_measurementmaps(datapath, stations, times, boundary, purpose):
             continue
         try:
             # idx = statnames.index(stationname)
-            idxlat = int(int(stations[stationname]['lat']) - boundary['CH_S'])
-            idxlon = int(int(stations[stationname]['lon']) - boundary['CH_E'])
+            idxlat = int((int(stations[stationname]['lat']) - boundary['CH_S'])/resolution)
+            idxlon = int((int(stations[stationname]['lon']) - boundary['CH_E'])/resolution)
             measurementmaps[:, idxlon, idxlat] = measurements
-        except Exception as e:
+        except Exception:
             warn(f'Adding humidities for station {stationname} failed, skipping this station.')
             continue
 
     if np.sum(measurementmaps) == 0:
-        return None
+        return None, None
 
     measurementmaps, times = remove_emptytimes(measurementmaps, times)
 
     return measurementmaps, times
 
 
-def tempgen(datapath, stations, times, boundary):
-    temps, times = generate_measurementmaps(datapath, stations, times, boundary, 'temp')
+def tempgen(datapath, stations, times, boundary, resolution):
+    temps, times = generate_measurementmaps(datapath, stations, times, boundary, resolution, 'temp')
     if temps is None:
         warn('No temperature measurements found for the given boundary and times')
         raise ValueError
     # print('Adjusting temperature map resolution')
     # temps = res_adjustment(temps, res)
-    print('\nCalculating Manhattan distance for temperature maps')
-    # TIMES REDUCED FOR TESTING!!!!
-    temps = manhatten_distance(temps)
-    try:
-        temps.dump(os.path.join(os.getcwd(), 'temps_manhattan.pickle'))
-    except OverflowError:
-        warn('Data larger than 4GiB and cannot be serialised for saving.')
-
     return temps, times
 
 
-def magen(temps, times):
-    print('Moving average..................')
-    ma = np.empty(shape=temps.shape)
-    for idxs, _ in np.ndenumerate(temps[0, :, :]):
-        ma[:, idxs[0], idxs[1]] = moving_average(temps[:, idxs[0], idxs[1]], times)
-    del temps
-
-    try:
-        ma.dump(os.path.join(os.getcwd(), 'movingaverage.pickle'))
-    except OverflowError:
-        warn('Data larger than 4GiB and cannot be serialised for saving.')
-    return ma
-
-
-def humigen(datapath, stations, times, boundary):
-    humimaps, times = generate_measurementmaps(datapath, stations, times, boundary, 'humi')
+def humigen(datapath, stations, times, boundary, resolution):
+    humimaps, times = generate_measurementmaps(datapath, stations, times, boundary, resolution, 'humi')
     print('Adjusting humidity map resolution')
     # humimaps = res_adjustment(humimaps, res)
     print('\nCalculating Manhattan distance for humidity maps')
