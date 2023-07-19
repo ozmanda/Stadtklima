@@ -14,7 +14,10 @@ def irradiationcalc(times, targetlat, targetlon):
     targetlat, targetlon = lv_to_wgs84(targetlat, targetlon, type='lv95')
     irradiation = list()
     for time in times:
-        time = time.tz_localize(timezone('Europe/Zurich'))
+        try:
+            time = time.tz_localize(timezone('Europe/Zurich'))
+        except TypeError:
+            pass
         alt = solar.get_altitude(targetlat, targetlon, time)
         if alt <= 0:
             irradiation.append(0)
