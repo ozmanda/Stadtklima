@@ -8,7 +8,7 @@ from spatialconvolutions import convolutions
 import pvlib.irradiance as rad
 
 
-def get_loc(stationid):
+def get_loc(stationid, infofilepath):
     """
     Determines the latitude and longitude of the measurement station using
     the input parameter stationid: the ID of the station, corresponding to
@@ -17,7 +17,7 @@ def get_loc(stationid):
     Returns the latitude and longitude of the station corrected to LV09
     coordinates
     """
-    stationscsv = read_csv(os.path.join(os.getcwd(), 'Messdaten\\stations.csv'), delimiter=';')
+    stationscsv = read_csv(infofilepath, delimiter=';')
     targetlat = None
     targetlon = None
     for _, row in stationscsv.iterrows():
@@ -69,11 +69,11 @@ def extract_feature(targetlat, targetlon, featurename, geopath, convs, num):
         return feature
 
 
-def get_geofeatures(stationid, geopath, num, convs, geofeaturelist):
+def get_geofeatures(stationid, geopath, num, convs, geofeaturelist, infofile):
     # list of static / geographic features to be considered
     geofeatures = np.empty(shape=(num, 0))
 
-    targetlat, targetlon = get_loc(stationid)
+    targetlat, targetlon = get_loc(stationid, infofile)
 
     for idx, feature in enumerate(geofeaturelist):
         if feature == 'altitude':
