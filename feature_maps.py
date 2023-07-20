@@ -31,9 +31,9 @@ def extract_palm_data(palmpath, res):
     palmfile = Dataset(palmpath, 'r', format='NETCDF4')
 
     print('    determining boundary.....................')
-    CH_S, CH_E = wgs84_to_lv(palmfile.origin_lat, palmfile.origin_lon, 'lv95')
+    CH_S, CH_W = wgs84_to_lv(palmfile.origin_lat, palmfile.origin_lon, 'lv95')
     CH_N = CH_S + palmfile.dimensions['x'].size * res
-    CH_W = CH_E + palmfile.dimensions['y'].size * res
+    CH_E = CH_W + palmfile.dimensions['y'].size * res
     boundary = {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
 
     print('    extracting times.........................')
@@ -47,7 +47,7 @@ def stations_loc(boundary, stationdata):
     stationscsv = read_csv(stationdata, delimiter=";")
     stations = {}
     for _, row in stationscsv.iterrows():
-        if boundary['CH_E'] <= int(row["CH_E"]) <= boundary['CH_W'] and boundary['CH_S'] <= int(row["CH_N"]) <= boundary['CH_N']:
+        if boundary['CH_W'] <= int(row["CH_E"]) <= boundary['CH_E'] and boundary['CH_S'] <= int(row["CH_N"]) <= boundary['CH_N']:
             stations[row["stationid_new"]] = {'lat': int(row["CH_N"]), 'lon': int(row["CH_E"])}
     return stations
 

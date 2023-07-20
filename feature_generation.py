@@ -70,11 +70,13 @@ def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, sigma=3):
         if boundary['CH_E'] < originlon or originlon + featuremap.shape[1] < boundary['CH_W'] or \
                 originlat < boundary['CH_S'] or originlat-featuremap.shape[2] > boundary['CH_N']:
             warn(f'geofeature map {geofeature} incomplete', Warning)
-            print(f'Border geomap: N {originlat}, S {originlat-featuremap.shape[2]}, W {originlon}, E {originlon + featuremap.shape[1]}')
-            print(f'Border featuremap: N {boundary["CH_N"]}, S {boundary["CH_S"]}, W {boundary["CH_W"]}, E {boundary["CH_E"]}')
+            print(f'Border geomap:     N {int(originlat)}, S {int(originlat-featuremap.shape[2])}, '
+                  f'W {int(originlon)}, E {int(originlon + featuremap.shape[1])}')
+            print(f'Border featuremap: N {int(boundary["CH_N"])}, S {int(boundary["CH_S"])}, '
+                  f'W {int(boundary["CH_W"])}, E {int(boundary["CH_E"])}')
             raise ValueError
 
-        lons = [int(np.round(boundary['CH_E'] - originlon)), int(np.round(boundary['CH_W'] - originlon))]
+        lons = [int(np.round(boundary['CH_W'] - originlon)), int(np.round(boundary['CH_E'] - originlon))]
         lats = [int(np.round(originlat - boundary['CH_N'])), int(np.round(originlat - boundary['CH_S']))]
         print('    convolutions...')
         for idx, conv in enumerate(convs):
@@ -136,7 +138,7 @@ def extract_measurement(datapath, times):
     #         continue
     #     elif idx == 0 and mes == 0:
     #         measurements[idx] = measurements[idx + 1]
-    #     elif idx == len(measurements) - 1 and mes == 0:
+    #     elif idx == len(measurements) - 1 and                                                                  mes == 0:
     #         measurements[idx] = measurements[idx - 1]
     #     elif mes == 0 and measurements[idx - 1] != 0 and measurements[idx + 1] == 0:
     #         measurements[idx] = measurements[idx - 1]
@@ -151,7 +153,7 @@ def extract_measurement(datapath, times):
 def generate_measurementmaps(datapath, stations, times, boundary, resolution, purpose):
     # create empty array for humidities
     measurementmaps = np.zeros(shape=(len(times),
-                               int((boundary['CH_W'] - boundary['CH_E']) / resolution),
+                               int((boundary['CH_E'] - boundary['CH_W']) / resolution),
                                int((boundary['CH_N'] - boundary['CH_S']) / resolution)))
     s = 0
     for file in os.listdir(datapath):
@@ -174,7 +176,7 @@ def generate_measurementmaps(datapath, stations, times, boundary, resolution, pu
         try:
             # idx = statnames.index(stationname)
             idxlat = int((int(stations[stationname]['lat']) - boundary['CH_S'])/resolution)
-            idxlon = int((int(stations[stationname]['lon']) - boundary['CH_E'])/resolution)
+            idxlon = int((int(stations[stationname]['lon']) - boundary['CH_W'])/resolution)
             measurementmaps[:, idxlon, idxlat] = measurements
         except Exception:
             warn(f'Adding humidities for station {stationname} failed, skipping this station.')
@@ -191,6 +193,7 @@ def generate_measurementmaps(datapath, stations, times, boundary, resolution, pu
 def tempgen(datapath, stations, times, boundary, resolution):
     temps, times = generate_measurementmaps(datapath, stations, times, boundary, resolution, 'temp')
     if temps is None:
+        print(f'N Stations: {len(stations)}')
         warn('No temperature measurements found for the given boundary and times')
         raise ValueError
     # print('Adjusting temperature map resolution')
