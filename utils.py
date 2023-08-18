@@ -1,5 +1,7 @@
 import numpy as np
 import time
+import _pickle as cPickle
+import pickle
 # from typing import Literal
 from pandas import to_datetime, Timedelta, Timestamp
 from warnings import warn
@@ -137,6 +139,19 @@ def remove_emptytimes(maps, times):
         times = np.delete(times, emptytimes, axis=0)
     print(f'remove_emptylines after: {times.shape}')
     return maps, times
+
+
+def dump_file(path, object):
+    with open(path, 'wb') as file:
+        cPickle.dump(object, file, protocol=pickle.HIGHEST_PROTOCOL)
+        file.close()
+
+
+def load_file(path):
+    with open(path, 'rb') as file:
+        object = cPickle.load(file)
+        file.close()
+    return object
 
 
 def moving_average(temps, datetime, timedelta=Timedelta(minutes=30)):
