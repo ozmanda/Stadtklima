@@ -43,7 +43,8 @@ def irradiationmap(boundary, times, altitudes):
     lat_SE, lon_SE = lv_to_wgs84(boundary['CH_S'], boundary['CH_E'], type='lv95')
     lat_NE, lon_NE = lv_to_wgs84(boundary['CH_N'], boundary['CH_E'], type='lv95')
     for idx, time in enumerate(times):
-        time = time.tz_localize(timezone('Europe/Zurich'))
+        if not time.tzinfo:
+            time = time.tz_localize(timezone('Europe/Zurich'))
 
         altSW = solar.get_altitude(lat_SW, lon_SW, time)
         radSW = radiation.get_radiation_direct(time, altSW)
