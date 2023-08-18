@@ -1,14 +1,12 @@
 import os
-import _pickle as cPickle
 import argparse
-import pickle
 from utils import manhatten_distance
 import numpy as np
 import pandas as pd
 from warnings import warn
 from netCDF4 import Dataset
-from pandas import DataFrame, to_datetime, Timedelta, read_csv
-from utils import wgs84_to_lv, extract_times, extract_surfacetemps
+from pandas import to_datetime, Timedelta, read_csv
+from utils import wgs84_to_lv, extract_times, extract_surfacetemps, dump_file, load_file, moving_average
 from feature_generation import tempgen, humigen, geogen, radgen
 
 
@@ -35,6 +33,7 @@ def extract_palm_data(palmpath, res):
     CH_N = CH_S + palmfile.dimensions['x'].size * res
     CH_E = CH_W + palmfile.dimensions['y'].size * res
     boundary = {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
+
 
     print('    extracting times.........................')
     times = np.array(extract_times(to_datetime(palmfile.origin_time), palmfile['time']))
@@ -77,70 +76,58 @@ def generate_features(datapath, geopath, stations, boundary, times, folder, reso
     print('Temperatures........................')
     if os.path.isfile(os.path.join(folder, 'temps.z')):
         # load temperatures and times
-        with open(os.path.join(folder, 'temps.z'), 'rb') as file:
-            temps = cPickle.load(file)
-            file.close()
-        with open(os.path.join(folder, 'times.z'), 'rb') as file:
-            times = cPickle.load(file)
-            file.close()
+        temps = load_file(os.path.join(folder, 'temps.z'))
+        times = load_file(os.path.join(folder, 'times.z'))
 
         # if manhattan distance calculations done, load otherwise call function
+        print('Moving average..................')
         if os.path.isfile(os.path.join(folder, 'ma.z')):
-            with open(os.path.join(folder, 'ma.z'), 'rb') as file:
-                ma = cPickle.load(file)
-                file.close()
+            ma = load_file(os.path.join(folder, 'ma.z'))
+        elif os.path.isfile(os.path.join(folder, 'manhattan.z')):
+            md = load_file(os.path.join(folder, 'manhattan.z'))
+            ma = moving_average(md, times)
+            dump_file(os.path.join(folder, 'ma.z'), ma)
         else:
-            print('Moving average..................')
-            ma = manhatten_distance(temps)
+            print('Manhattan Distance..............')
+            md = manhatten_distance(temps)
+            dump_file(os.path.join(folder, 'manhattan.z'), md)
+            ma = moving_average(md, times)
+            dump_file(os.path.join(folder, 'ma.z'), ma)
+
     else:
         # temperature and time generation
         temps, times = tempgen(datapath, stations, times, boundary, resolution)
         # save intermediate step
-        with open(os.path.join(folder, 'temps.z'), 'wb') as file:
-            cPickle.dump(temps, file, protocol=pickle.HIGHEST_PROTOCOL)
-            file.close()
-        with open(os.path.join(folder, 'times.z'), 'wb') as file:
-            cPickle.dump(times, file, protocol=pickle.HIGHEST_PROTOCOL)
-            file.close()
+        dump_file(os.path.join(folder, 'temps.z'), temps)
+        dump_file(os.path.join(folder, 'times.z'), times)
 
         # generate manhattan distance maps and save
         ma = manhatten_distance(temps)
-        with open(os.path.join(folder, 'ma.z'), 'wb') as file:
-            cPickle.dump(ma, file, protocol=pickle.HIGHEST_PROTOCOL)
-            file.close()
+        dump_file(os.path.join(folder, 'manhattan.z'), ma)
+        ma = moving_average(temps, times)
+        dump_file(os.path.join(folder, 'manhattan.z'), ma)
 
     print('Humidities..........................')
     if os.path.isfile(os.path.join(folder, 'humimaps.z')):
-        with open(os.path.join(folder, 'humimaps.z'), 'rb') as file:
-            humimaps = cPickle.load(file)
-            file.close()
+        humimaps = load_file(os.path.join(folder, 'humimaps.z'))
     else:
         humimaps, times = humigen(datapath, stations, times, boundary, resolution)
-        with open(os.path.join(folder, 'humimaps.z'), 'wb') as file:
-            cPickle.dump(humimaps, file, protocol=pickle.HIGHEST_PROTOCOL)
-            file.close()
+        dump_file(os.path.join(folder, 'humimaps.z'), humimaps)
+        dump_file(os.path.join(folder, 'times.z'), times)
 
     print('Geofeatures.........................')
     if os.path.isfile(os.path.join(folder, 'geomaps.z')):
-        with open(os.path.join(folder, 'geomaps.z'), 'rb') as file:
-            geomaps = cPickle.load(file)
-            file.close()
+        geomaps = load_file(os.path.join(folder, 'geomaps.z'))
     else:
         geomaps = geogen(geopath, boundary, humimaps)
-        with open(os.path.join(folder, 'geomaps.z'), 'wb') as file:
-            cPickle.dump(geomaps, file, protocol=pickle.HIGHEST_PROTOCOL)
-            file.close()
+        dump_file(os.path.join(folder, 'geomaps.z'), geomaps)
 
     print('Irradiation.........................')
     if os.path.isfile(os.path.join(folder, 'irrad.z')):
-        with open(os.path.join(folder, 'irrad.z'), 'rb') as file:
-            irrad = cPickle.load(file)
-            file.close()
+        irrad = load_file(os.path.join(folder, 'irrad.z'))
     else:
         irrad = radgen(boundary, geomaps, times)
-        with open(os.path.join(folder, 'irrad.z'), 'wb') as file:
-            cPickle.dump(irrad, file, protocol=pickle.HIGHEST_PROTOCOL)
-            file.close()
+        dump_file(os.path.join(folder, 'irrad.z'), irrad)
 
     # separation of time and datetime
     datetime_full = times.copy()
@@ -171,6 +158,7 @@ def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpat
     if type == 'validation':
         folder = f'VALIDATION/{os.path.basename(palmpath).split(".nc")[0]}'
         boundary, times = extract_palm_data(palmpath, res)
+        dump_file(f'{os.path.splitext(palmpath)[0]}_boundary.z', boundary)
     elif type == 'inference':
         folder = f'INFERENCE/{args.boundary[0]}-{args.boundary[1]}_{args.boundary[2]}_{args.boundary[3]}-' \
                  f'{args.time[0].replace("/", "-")}_{args.time[1].replace("/", "-")}'
@@ -190,14 +178,12 @@ def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpat
 
     # Extract surface temperature from PALM simulation for validation type
     if type == 'validation':
-        print('    extracting PALM surface temperatures..........')
-        try:
+        print('PALM surface temperatures..........')
+        if os.path.isfile(os.path.join(folder, 'PALM_surfacetemps.z')):
+            temps = load_file(os.path.join(folder, 'PALM_surfacetemps.z'))
+        else:
             temps = extract_surfacetemps(palmpath)
-        except IndexError:
-            temps = extract_surfacetemps(palmpath)
-        with open(os.path.join(folder, 'PALM_surfacetemps.z'), 'wb') as file:
-            cPickle.dump(temps, file, protocol=pickle.HIGHEST_PROTOCOL)
-            file.close()
+            dump_file(os.path.join(folder, 'PALM_surfacetemps.z'), temps)
 
     # create time and datetime maps
     datetime_map = np.empty(shape=rad.shape, dtype=np.dtype('U20'))
@@ -220,13 +206,14 @@ def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpat
     # generate filename and save dataset
     starttime = f'{datetime_map[0, 0, 0][0:10]}-{datetime_map[0, 0, 0][11:16]}'.replace(':', '.')
     endtime = f'{datetime_map[-1, 0, 0][0:10]}-{datetime_map[-1, 0, 0][11:16]}'.replace(':', '.')
-    filename = f'{type}_{starttime}_{endtime}_{boundary_wgs84[0]}-{boundary_wgs84[1]}_' \
-               f'{boundary_wgs84[2]}-{boundary_wgs84[3]}.json'
+    if boundary_wgs84:
+        filename = f'{type}_{starttime}_{endtime}_{boundary_wgs84[0]}-{boundary_wgs84[1]}_' \
+                   f'{boundary_wgs84[2]}-{boundary_wgs84[3]}.json'
+    elif palmpath:
+        filename = f'{os.path.basename(palmpath)}.json'
+
     savepath = os.path.join(savepath, filename)
-    with open(savepath, 'wb') as file:
-        cPickle.dump(maps, file, protocol=pickle.HIGHEST_PROTOCOL)
-        file.close()
-    # feature_dataframe.to_csv(savepath, sep=';', index=False)
+    dump_file(savepath, maps)
 
 
 if __name__ == '__main__':
