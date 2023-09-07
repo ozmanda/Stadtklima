@@ -154,12 +154,12 @@ def load_file(path):
     return object
 
 
-def moving_average(temps, datetime, timedelta=Timedelta(minutes=30)):
+def moving_average(temps, datetime, timedelta=Timedelta(minutes=60)):
     moving_average = []
     for time in datetime:
         ma = []
         for idx, t in enumerate(datetime):
-            if t-timedelta <= time <= t+timedelta:
+            if time-timedelta <= t <= time:
                 ma.append(temps[idx])
             elif t > t+timedelta:
                 break
