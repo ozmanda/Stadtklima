@@ -156,14 +156,17 @@ def load_file(path):
 
 def moving_average(temps, datetime, timedelta=Timedelta(minutes=60)):
     moving_average = []
-    for time in datetime:
+    for i, time in enumerate(datetime):
         ma = []
         for idx, t in enumerate(datetime):
             if time-timedelta <= t <= time:
                 ma.append(temps[idx])
-            elif t > t+timedelta:
+            elif t > time:
                 break
-        moving_average.append(np.sum(ma)/len(ma))
+        if not ma:
+            moving_average.append(temps[i])
+        else:
+            moving_average.append(np.sum(ma)/len(ma))
 
     if len(moving_average) != len(temps):
         warn(f'Length of moving average vector ({len(moving_average)}) is not equivalent to the length of the '
