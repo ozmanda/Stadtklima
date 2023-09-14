@@ -154,9 +154,10 @@ def load_file(path):
     return object
 
 
-def moving_average(temps, datetime, timedelta=Timedelta(minutes=60)):
-    moving_average = []
+def moving_average(temps: np.ndarray, datetime, timedelta=Timedelta(minutes=60)):
+    movingaverage = []
     for i, time in enumerate(datetime):
+        print(f'time {i}: ', end='')
         ma = []
         for idx, t in enumerate(datetime):
             if time-timedelta <= t <= time:
@@ -164,16 +165,20 @@ def moving_average(temps, datetime, timedelta=Timedelta(minutes=60)):
             elif t > time:
                 break
         if not ma:
-            moving_average.append(temps[i])
+            print(f'moving average shape: {np.array(movingaverage).shape}')
+            movingaverage.append(temps[i])
         else:
-            moving_average.append(np.sum(ma)/len(ma))
+            print(f'moving average shape: {np.array(movingaverage).shape}')
+            movingaverage.append(np.mean(ma, axis=0))
 
-    if len(moving_average) != len(temps):
-        warn(f'Length of moving average vector ({len(moving_average)}) is not equivalent to the length of the '
-             f'temperature vector ({len(temps)})')
+    movingaverage = np.array(movingaverage)
+    if movingaverage.shape != temps.shape:
+        warn(f'Shape of moving average vector ({movingaverage.shape}) is not equivalent to the length of the '
+             f'temperature vector ({temps.shape})')
         raise ValueError
 
-    return moving_average
+    print(f'movingaverage final shape: {movingaverage.shape}')
+    return movingaverage
 
 
 def manhatten_distance_(featuremaps):

@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from warnings import warn
 from netCDF4 import Dataset
+from metpy.calc import relative_humidity_from_mixing_ratio
+from metpy.units import units
 from pandas import to_datetime, Timedelta, read_csv
 from utils import wgs84_to_lv, extract_times, extract_surfacetemps, dump_file, load_file, moving_average
 from feature_generation import tempgen, humigen, geogen, radgen
@@ -17,7 +19,7 @@ geofeatures = ['altitude', 'buildings', 'buildings_10', 'buildings_30', 'buildin
                'pavedsurfaces_500', 'surfacewater', 'surfacewater_10', 'surfacewater_30', 'surfacewater_100',
                'surfacewater_200', 'surfacewater_500', 'urbangreen', 'urbangreen_10', 'urbangreen_30', 'urbangreen_100',
                'urbangreen_200', 'urbangreen_500']
-
+pressure = 1013.25
 
 def extract_palm_data(palmpath, res):
     """
@@ -41,6 +43,44 @@ def extract_palm_data(palmpath, res):
     return boundary, times
 
 
+def palm_humi(palmpath):
+    """
+    Extracts water vapor mixing ratio from PALM file and transforms it into rela00tive humidity maps
+    :param palmpath: path to PALM simulation file
+    :return: 3-dimensional humidity map
+    """
+    print('Extracting PALM humidity data................')
+    print('    loading PALM file........................')
+    palmfile = Dataset(palmpath, 'r', format='NETCDF4')
+    all_mr = palmfile['q_xy']
+    surf_humis = np.zeros(shape=(all_mr.shape[0], all_mr.shape[2], all_mr.shape[3]))
+    for time in range(all_mr.shape[0]):
+        for idxs, _ in np.ndenumerate(all_mr[time, 0, :, :]):
+            for layer in range(all_mr.shape[1]):
+                if all_mr[time, layer, idxs[0], idxs[1]] != -9999:
+                    surface_mixing_ratio = all_mr[time, layer, idxs[0], idxs[1]]
+                    temp = palmfile['theta_xy'][time, layer, idxs[0], idxs[1]]
+                    relative_humidity = relative_humidity_from_mixing_ratio(pressure*units.hPa,
+                                                                            (temp - 273.15) * units.degC,
+                                                                            surface_mixing_ratio).to('percent')
+                    relative_humidity = round(float(relative_humidity), 2)
+                    assert 0 < relative_humidity < 100, 'Relative humidity must be between 0 and 100 (percent)'
+                    if np.isnan(relative_humidity):
+                        warn(f'Relative humidity at {idxs} for time {time} is NaN')
+                        raise ValueError
+                    if np.isinf(relative_humidity):
+                        warn(f'Relative humidity at {idxs} for time {time} is inf')
+                        raise ValueError
+                    surf_humis[time, idxs[0], idxs[1]] = relative_humidity
+                    break
+                else:
+                    continue
+    # flip maps to account for PALM having origin at the bottom left, not top left
+    surf_humis = np.flip(surf_humis, axis=1)
+
+    return surf_humis
+
+
 def stations_loc(boundary, stationdata):
     print('Identifying stations within the boundary')
     stationscsv = read_csv(stationdata, delimiter=";")
@@ -49,6 +89,7 @@ def stations_loc(boundary, stationdata):
         if boundary['CH_W'] <= int(row["CH_E"]) <= boundary['CH_E'] and boundary['CH_S'] <= int(row["CH_N"]) <= boundary['CH_N']:
             stations[row["stationid_new"]] = {'lat': int(row["CH_N"]), 'lon': int(row["CH_E"])}
     return stations
+
 
 def time_generation(timeframe):
     times = []
@@ -71,7 +112,7 @@ def format_boundaries(boundary):
     return {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
 
 
-def generate_features(datapath, geopath, stations, boundary, times, folder, resolution=None):
+def generate_features(datapath, geopath, stations, boundary, times, folder, resolution=None, palmhumis=False, palmpath=None):
     # TEMEPRATURE GENERATION
     print('Temperatures........................')
     if os.path.isfile(os.path.join(folder, 'temps.z')):
@@ -86,14 +127,15 @@ def generate_features(datapath, geopath, stations, boundary, times, folder, reso
         elif os.path.isfile(os.path.join(folder, 'manhattan.z')):
             md = load_file(os.path.join(folder, 'manhattan.z'))
             ma = moving_average(md, times)
+            print(f'moving_average shape: {ma.shape}')
             dump_file(os.path.join(folder, 'ma.z'), ma)
         else:
             print('Manhattan Distance..............')
             md = manhatten_distance(temps)
             dump_file(os.path.join(folder, 'manhattan.z'), md)
             ma = moving_average(md, times)
+            print(f'moving_average shape: {ma.shape}')
             dump_file(os.path.join(folder, 'ma.z'), ma)
-
     else:
         # temperature and time generation
         temps, times = tempgen(datapath, stations, times, boundary, resolution)
@@ -102,18 +144,28 @@ def generate_features(datapath, geopath, stations, boundary, times, folder, reso
         dump_file(os.path.join(folder, 'times.z'), times)
 
         # generate manhattan distance maps and save
-        ma = manhatten_distance(temps)
-        dump_file(os.path.join(folder, 'manhattan.z'), ma)
-        ma = moving_average(temps, times)
-        dump_file(os.path.join(folder, 'manhattan.z'), ma)
+        md = manhatten_distance(temps)
+        dump_file(os.path.join(folder, 'manhattan.z'), md)
+        ma = moving_average(md, times)
+        print(f'moving_average shape: {ma.shape}')
+        dump_file(os.path.join(folder, 'ma.z'), ma)
 
     print('Humidities..........................')
-    if os.path.isfile(os.path.join(folder, 'humimaps.z')):
-        humimaps = load_file(os.path.join(folder, 'humimaps.z'))
+    if palmhumis:
+        print('    palm humidity')
+        if os.path.isfile(os.path.join(folder, 'humimaps_palm.z')):
+            print('    loading file')
+            humimaps = load_file(os.path.join(folder, 'humimaps_palm.z'))
+        else:
+            humimaps = palm_humi(palmpath)
+            dump_file(os.path.join(folder, 'humimaps_palm.z'), humimaps)
     else:
-        humimaps, times = humigen(datapath, stations, times, boundary, resolution)
-        dump_file(os.path.join(folder, 'humimaps.z'), humimaps)
-        dump_file(os.path.join(folder, 'times.z'), times)
+        if os.path.isfile(os.path.join(folder, 'humimaps.z')):
+            humimaps = load_file(os.path.join(folder, 'humimaps.z'))
+        else:
+            humimaps, times = humigen(datapath, stations, times, boundary, resolution)
+            dump_file(os.path.join(folder, 'humimaps.z'), humimaps)
+            dump_file(os.path.join(folder, 'times.z'), times)
 
     print('Geofeatures.........................')
     if os.path.isfile(os.path.join(folder, 'geomaps.z')):
@@ -153,10 +205,10 @@ def add_geos(dict, geos):
 # WRAPPER FUNCTIONS ---------------------------------------------------------------------------------------------------
 
 def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpath=None, res=None,
-                         boundary_wgs84=None, times=None):
+                         boundary_wgs84=None, times=None, palmhumi=False):
     # Set folder name for intermediate steps, boundaries and times for both validation and inference cases
     if type == 'validation':
-        folder = f'VALIDATION/{os.path.basename(palmpath).split(".nc")[0]}'
+        folder = f'DATA/QRF_Inference_Feature_Maps/{os.path.basename(palmpath).split(".nc")[0]}_palmhumi'
         boundary, times = extract_palm_data(palmpath, res)
         dump_file(f'{os.path.splitext(palmpath)[0]}_boundary.z', boundary)
     elif type == 'inference':
@@ -174,7 +226,8 @@ def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpat
 
     # identify stations and generate featuremaps within the boundaries based on these stations
     stations = stations_loc(boundary, stationinfo)
-    datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, folder, res)
+    datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, folder, res,
+                                                              palmhumis=palmhumi, palmpath=palmpath)
 
     # Extract surface temperature from PALM simulation for validation type
     if type == 'validation':
@@ -202,6 +255,7 @@ def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpat
     maps = {'datetime': datetime_map, 'time': time_map}
     maps = add_geos(maps, geo)
     maps = {**maps, 'humidity': humis, 'irradiation': rad, 'moving_average': ma, 'temperature': temps}
+    print(f'moving_average shape: {ma.shape}')
 
     # generate filename and save dataset
     starttime = f'{datetime_map[0, 0, 0][0:10]}-{datetime_map[0, 0, 0][11:16]}'.replace(':', '.')
@@ -210,7 +264,7 @@ def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpat
         filename = f'{type}_{starttime}_{endtime}_{boundary_wgs84[0]}-{boundary_wgs84[1]}_' \
                    f'{boundary_wgs84[2]}-{boundary_wgs84[3]}.json'
     elif palmpath:
-        filename = f'{os.path.basename(palmpath)}.json'
+        filename = f'{os.path.basename(palmpath).split(".nc")[0]}_palmhumi.json'
 
     savepath = os.path.join(savepath, filename)
     dump_file(savepath, maps)
@@ -235,6 +289,7 @@ if __name__ == '__main__':
                                                           'format %Y/%m/%d_%H:%M')
     # Validation arguments
     parser.add_argument('--palmfile', type=str, help='Path to PALM file')
+    parser.add_argument('--palmhumi', type=bool, default=False, help='Should humidity be taken from PALM simulation')
     parser.add_argument('--res', type=int, help='PALM file resolution [m]')
 
     args = parser.parse_args()
@@ -254,11 +309,11 @@ if __name__ == '__main__':
             raise e
 
         generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath,
-                             boundary_wgs84=args.boundary, times=times)
+                             boundary_wgs84=args.boundary, times=times, palmhumi=args.palmhumi)
 
         
     elif args.mode == 'validation':
         assert os.path.isfile(args.palmfile), 'Valid PALM simulation file must be given'
         generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath,
-                             palmpath=args.palmfile, res=args.res)
+                             palmpath=args.palmfile, res=args.res, palmhumi=args.palmhumi)
 
