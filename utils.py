@@ -105,6 +105,7 @@ def wgs84_to_lv(wgs84_lat, wgs84_lon, type, h_wgs=None, unit='deg'):
         else:
             return lv03_lat, lv03_lon
 
+
 def DST_TZ(times):
     for idx, time in enumerate(times):
         if Timestamp('2019-03-31 02:00') <= time <= Timestamp('2019-10-27 02:00'):
