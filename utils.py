@@ -79,13 +79,13 @@ def wgs84_to_lv(wgs84_lat, wgs84_lon, type, h_wgs=None, unit='deg'):
     lv95_lon =  2600072.37 \
                 + 211455.93 * lambda_prime \
                 - 10938.51 * lambda_prime * phi_prime \
-                - 0.36 * lambda_prime * phi_prime** 2 \
-                - 44.54 * lambda_prime** 3
+                - 0.36 * lambda_prime * phi_prime**2 \
+                - 44.54 * lambda_prime**3
 
     lv95_lat = 1200147.07 \
                + 308807.95 * phi_prime \
-               + 3745.25 * lambda_prime** 2 \
-               + 76.63 * phi_prime** 2 \
+               + 3745.25 * lambda_prime**2 \
+               + 76.63 * phi_prime**2 \
                - 194.56 * lambda_prime**2 * phi_prime \
                + 119.79 * phi_prime**3
 
