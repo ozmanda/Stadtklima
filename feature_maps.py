@@ -124,21 +124,24 @@ def generate_features(datapath, geopath, stations, boundary, times, folder, reso
         print('Moving average..................')
         if os.path.isfile(os.path.join(folder, 'ma.z')):
             ma = load_file(os.path.join(folder, 'ma.z'))
+
         elif os.path.isfile(os.path.join(folder, 'manhattan.z')):
             md = load_file(os.path.join(folder, 'manhattan.z'))
+
             ma = moving_average(md, times)
-            print(f'moving_average shape: {ma.shape}')
             dump_file(os.path.join(folder, 'ma.z'), ma)
+
         else:
             print('Manhattan Distance..............')
             md = manhatten_distance(temps)
             dump_file(os.path.join(folder, 'manhattan.z'), md)
+
             ma = moving_average(md, times)
-            print(f'moving_average shape: {ma.shape}')
             dump_file(os.path.join(folder, 'ma.z'), ma)
     else:
         # temperature and time generation
         temps, times = tempgen(datapath, stations, times, boundary, resolution)
+
         # save intermediate step
         dump_file(os.path.join(folder, 'temps.z'), temps)
         dump_file(os.path.join(folder, 'times.z'), times)
@@ -146,19 +149,20 @@ def generate_features(datapath, geopath, stations, boundary, times, folder, reso
         # generate manhattan distance maps and save
         md = manhatten_distance(temps)
         dump_file(os.path.join(folder, 'manhattan.z'), md)
+
+        # calculate moving average of manhattan distance maps
         ma = moving_average(md, times)
-        print(f'moving_average shape: {ma.shape}')
         dump_file(os.path.join(folder, 'ma.z'), ma)
 
     print('Humidities..........................')
     if palmhumis:
         print('    palm humidity')
         if os.path.isfile(os.path.join(folder, 'humimaps_palm.z')):
-            print('    loading file')
             humimaps = load_file(os.path.join(folder, 'humimaps_palm.z'))
         else:
             humimaps = palm_humi(palmpath)
             dump_file(os.path.join(folder, 'humimaps_palm.z'), humimaps)
+
     else:
         if os.path.isfile(os.path.join(folder, 'humimaps.z')):
             humimaps = load_file(os.path.join(folder, 'humimaps.z'))
