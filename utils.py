@@ -31,34 +31,38 @@ def lv03_to_lv95(lv03_lat, lv03_lon):
     return lv03_lat + 1000000, lv03_lon + 2000000
 
 
+# float specification!
 def lv_to_wgs84(lv_lat, lv_lon, type, h_lv=None):
     if type == 'lv03':
-        y_prime = (lv_lon - 600000) / 1000000
-        x_prime = (lv_lat - 200000) / 1000000
+        y_prime: float = (lv_lon - 600000) / 1000000
+        x_prime: float = (lv_lat - 200000) / 1000000
     elif type == 'lv95':
-        y_prime = (lv_lon - 2600000) / 1000000
-        x_prime = (lv_lat - 1200000) / 1000000
+        y_prime: float = (lv_lon - 2600000) / 1000000
+        x_prime: float = (lv_lat - 1200000) / 1000000
     else:
         warn(f'Invalid type ({type}) passed for conversion (only "lv95" or "lv03" accepted).')
+        raise ValueError
 
-    lambda_prime = 2.6779094 + \
+    lambda_prime: float = 2.6779094 + \
                    4.728982 * y_prime + \
                    0.791484 * y_prime * x_prime + \
                    0.130600 * y_prime * x_prime**2 - \
                    0.043600 * y_prime**3
+    print(f'y prime: {y_prime}\nlambda prime: {lambda_prime}')
 
-    phi_prime = 16.9023892 + \
+    phi_prime: float = 16.9023892 + \
                 3.238272 * x_prime - \
                 0.270978 * y_prime**2 - \
                 0.002528 * x_prime**2 - \
                 0.044700 * x_prime + y_prime**2 - \
                 0.014000 * x_prime**3
+    print(f'x_prime: {x_prime}\nphi prime: {phi_prime}')
 
-    wgs84_lat = (phi_prime * 100) / 36
-    wgs84_lon = (lambda_prime * 100) / 36
+    wgs84_lat: float = (phi_prime * 100) / 36
+    wgs84_lon: float = (lambda_prime * 100) / 36
 
     if h_lv:
-        h_wgs = h_lv + 49.55 \
+        h_wgs: float = h_lv + 49.55 \
                 - 12.9 * y_prime \
                 - 22.64 * x_prime
         return wgs84_lat, wgs84_lon, h_wgs
@@ -76,13 +80,13 @@ def wgs84_to_lv(wgs84_lat, wgs84_lon, type, h_wgs=None, unit='deg'):
 
 
     # E = longitude, N = latitude
-    lv95_lon =  2600072.37 \
+    lv95_lon: float =  2600072.37 \
                 + 211455.93 * lambda_prime \
                 - 10938.51 * lambda_prime * phi_prime \
                 - 0.36 * lambda_prime * phi_prime**2 \
                 - 44.54 * lambda_prime**3
 
-    lv95_lat = 1200147.07 \
+    lv95_lat: float = 1200147.07 \
                + 308807.95 * phi_prime \
                + 3745.25 * lambda_prime**2 \
                + 76.63 * phi_prime**2 \
