@@ -4,7 +4,7 @@ from utils import manhatten_distance
 import numpy as np
 import pandas as pd
 from warnings import warn
-from netCDF4 import Dataset
+from netCDF4 import Dataset #type: ignore
 from metpy.calc import relative_humidity_from_mixing_ratio
 from metpy.units import units
 from pandas import to_datetime, Timedelta, read_csv
@@ -21,17 +21,17 @@ geofeatures = ['altitude', 'buildings', 'buildings_10', 'buildings_30', 'buildin
                'urbangreen_200', 'urbangreen_500']
 pressure = 1013.25
 
-def extract_palm_data(palmpath, res):
+def extract_palm_data(palmpath: str, res: int):
     """
     Extracts times, temperature and boundary coordinates from PALM file. PALM coordinates are extracted as latitude
     and longitude (WGS84) and converted to LV95 projection coordinates.
     """
     print('Extracting PALM File data....................')
     print('    loading PALM file........................')
-    palmfile = Dataset(palmpath, 'r', format='NETCDF4')
+    palmfile: Dataset = Dataset(palmpath, 'r', format='NETCDF4')
 
     print('    determining boundary.....................')
-    CH_S, CH_W = wgs84_to_lv(palmfile.origin_lat, palmfile.origin_lon, 'lv95')
+    CH_S, CH_W, _ = wgs84_to_lv(palmfile.origin_lat, palmfile.origin_lon, 'lv95') #type: ignore
     CH_N = CH_S + palmfile.dimensions['x'].size * res
     CH_E = CH_W + palmfile.dimensions['y'].size * res
     boundary = {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
@@ -107,12 +107,13 @@ def format_boundaries(boundary):
     """
     assert boundary[0] < boundary[1], 'Northern latitude must be larger than the southern latitude'
     assert boundary[2] < boundary[3], 'Eastern longitude must be larger than the western longitude'
-    CH_S, CH_E = wgs84_to_lv(boundary[0], boundary[2], 'lv95')
-    CH_N, CH_W = wgs84_to_lv(boundary[1], boundary[3], 'lv95')
+    CH_S, CH_E = wgs84_to_lv(boundary[0], boundary[2], 'lv95') #type: ignore
+    CH_N, CH_W = wgs84_to_lv(boundary[1], boundary[3], 'lv95') #type: ignore
     return {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
 
 
-def generate_features(datapath, geopath, stations, boundary, times, folder, resolution=None, palmhumis=False, palmpath=None):
+def generate_features(datapath: str, geopath: str, stations: dict, boundary: dict, times: list[pd.Timestamp], 
+                      folder: str, resolution: int = 0, palmhumis: bool = False, palmpath: str = ''):
     # TEMEPRATURE GENERATION
     print('Temperatures........................')
     if os.path.isfile(os.path.join(folder, 'temps.z')):
@@ -186,31 +187,54 @@ def generate_features(datapath, geopath, stations, boundary, times, folder, reso
         dump_file(os.path.join(folder, 'irrad.z'), irrad)
 
     # separation of time and datetime
-    datetime_full = times.copy()
+    datetime_full = []
+    times_only = []
     for idx, time in enumerate(times):
         t = time.tz_localize(None)
-        times[idx] = t.time()
-        datetime_full[idx] = t
-    return datetime_full, times, humimaps, geomaps, irrad, ma
+        datetime_full.append(t)
+        times_only.append(t.time())
+    return datetime_full, times_only, humimaps, geomaps, irrad, ma
 
 
-def add_geos_flattened(dict, geos):
+def add_geos_flattened(d: dict, geos: np.ndarray):
     for idx, feature in enumerate(geofeatures):
-        dict[feature] = np.ravel(geos[:, idx, :, :])
-    return dict
+        d[feature] = np.ravel(geos[:, idx, :, :])
+    return d
 
 
-def add_geos(dict, geos):
+def add_geos(d: dict, geos: np.ndarray):
     for idx, feature in enumerate(geofeatures):
-        dict[feature] = geos[:, idx, :, :]
-    return dict
+        d[feature] = geos[:, idx, :, :]
+    return d
 
 
 # WRAPPER FUNCTIONS ---------------------------------------------------------------------------------------------------
+# TODO: turn this into two separate functions for validation and inference cases
+# TODO: identify repeated functions and generalise them for validation and inference cases
+def generate_featuremaps(type: str, datapath: str, geopath: str, stationinfo: str, savepath: str, palmpath: str = '', 
+                         res: int = 16, boundary_wgs84: list = [], times: list = [], palmhumi: bool = False):
+    """
+    Function to generate feature maps for validation and inference cases. For validation cases, PALM simulation data is 
+    used to generate feature and target temperature maps. For inference cases, the target temperature maps are not generated.
 
-def generate_featuremaps(type, datapath, geopath, stationinfo, savepath, palmpath=None, res=None,
-                         boundary_wgs84=None, times=None, palmhumi=False):
+    Args:
+        type (str): Type of feature map to be generated, either "validation" or "inference"
+        datapath (str): Path to station-based measurement data
+        geopath (str): Path to geospatial data
+        stationinfo (str): Path to station information
+        savepath (str): Path to save folder
+        palmpath (str, optional): Path to PALM simulation file. Defaults to None.
+        res (int, optional): Resolution of the PALM simulation file. Defaults to 16.
+        boundary_wgs84 (list, optional): Boundary of the maps (inference case). Defaults to None.
+        times (list, optional): Start and end times for the generated maps. Defaults to None.
+        palmhumi (bool, optional): Boolean indicating whether humidity values should be taken from PALM. Defaults to False.
+
+    Raises:
+        ValueError: Upon receiving a type other than "validation" or "inference"
+    """
     # Set folder name for intermediate steps, boundaries and times for both validation and inference cases
+    boundary: dict = {}
+    times: np.ndarray = np.array([])
     if type == 'validation':
         folder = f'DATA/QRF_Inference_Feature_Maps/{os.path.basename(palmpath).split(".nc")[0]}_palmhumi'
         boundary, times = extract_palm_data(palmpath, res)
@@ -294,7 +318,7 @@ if __name__ == '__main__':
     # Validation arguments
     parser.add_argument('--palmfile', type=str, help='Path to PALM file')
     parser.add_argument('--palmhumi', type=bool, default=False, help='Should humidity be taken from PALM simulation')
-    parser.add_argument('--res', type=int, help='PALM file resolution [m]')
+    parser.add_argument('--res', type=int, help='PALM file resolution [m]', default=16)
 
     args = parser.parse_args()
     assert args.mode == 'inference' or args.mode == 'validation'

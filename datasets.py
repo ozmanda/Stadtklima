@@ -1,9 +1,11 @@
 import os
 import argparse
+import numpy as np
 from warnings import warn
 from utils import roundTime
 from pandas import read_csv, to_datetime, Timedelta, DataFrame
-from netCDF4 import Dataset
+import pandas as pd
+from netCDF4 import Dataset # type: ignore
 
 
 def times(datapath, filename):
@@ -39,31 +41,34 @@ def empty_df(datapath, stationids):
         except Exception as e:
             continue
 
-    return DataFrame(columns=cols)
+    return DataFrame(columns=cols) # type: ignore
 
 
-def stationdata(datapath, stationid, start, end):
-    stationcsv = read_csv(os.path.join(datapath, f'{stationid}.csv'), delimiter=';')
+def stationdata(datapath: str, stationid: str, start: pd.Timestamp, end: pd.Timestamp) -> DataFrame:
+    stationcsv: DataFrame = read_csv(os.path.join(datapath, f'{stationid}.csv'), delimiter=';')
     if start and end:
-        if start > to_datetime(stationcsv.iloc[-1, 0]) or end < to_datetime(stationcsv.iloc[0, 0]):
+        #! very simple solution to the code, untested 
+        # idxs = np.where((to_datetime(stationcsv.iloc[:, 0]) >= start) & (to_datetime(stationcsv.iloc[:, 0]) <= end))[0] # type: ignore
+        # stationcsv = stationcsv.iloc[idxs, :]
+        if start > to_datetime(stationcsv.iloc[-1, 0]) or end < to_datetime(stationcsv.iloc[0, 0]): # type: ignore
             warn('PALM simulation outside of measurement window', Warning)
             raise ValueError
 
         startidx = 0
-        if to_datetime(stationcsv.iloc[startidx, 0]) > start:
+        if to_datetime(stationcsv.iloc[startidx, 0]) > start: # type: ignore
             warn(f'PALM simulation begins before measurement period, beginning at '
-                 f'{to_datetime(stationcsv.iloc[startidx, 0])}', Warning)
+                 f'{to_datetime(stationcsv.iloc[startidx, 0])}', Warning) # type: ignore
         else:
-            while to_datetime(stationcsv.iloc[startidx, 0]) < start:
+            while to_datetime(stationcsv.iloc[startidx, 0]) < start: # type: ignore
                 startidx += 1
                 continue
 
         endidx = startidx
         try:
-            while to_datetime(stationcsv.iloc[endidx, 0]) <= end:
+            while to_datetime(stationcsv.iloc[endidx, 0]) <= end: # type: ignore
                 if endidx >= len(stationcsv):
                     warn(f'PALM simulation is longer than the measured period, cutting off at '
-                         f'{to_datetime(stationcsv.iloc[endidx, 0])}', Warning)
+                         f'{to_datetime(stationcsv.iloc[endidx, 0])}', Warning)  # type: ignore
                     break
                 endidx += 1
                 continue
@@ -78,7 +83,7 @@ def stationdata(datapath, stationid, start, end):
     return stationcsv.iloc[startidx:endidx, :]
 
 
-def create_dataset(datapath, palmpath, filename, stationids, savepath):
+def create_dataset(datapath: str, palmpath: str, filename: str, stationids: list[str], savepath: str):
     start, end = times(palmpath, filename)
 
     if not stationids:
@@ -89,7 +94,8 @@ def create_dataset(datapath, palmpath, filename, stationids, savepath):
     dataset = empty_df(datapath, stationids)
     for stationid in stationids:
         try:
-            dataset = dataset.append(stationdata(datapath, stationid, start, end), ignore_index=True)
+            data: DataFrame = stationdata(datapath, stationid, start, end)
+            dataset = pd.concat([dataset, data], ignore_index=True)
         except ValueError:
             continue
 
@@ -115,8 +121,8 @@ if __name__ == '__main__':
     parser.add_argument('--savepath', type=str, default='Data/v4', help='relative path for the save file')
     args = parser.parse_args()
 
-    stations = None
-    args.palmfile = None
+    stations = []
+    args.palmfile = ''
     dataset = create_dataset(datapath=os.path.join(os.getcwd(), args.measurementpath),
                              palmpath=args.palmpath,
                              filename=args.palmfile,

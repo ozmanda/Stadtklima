@@ -27,10 +27,12 @@ def deg_to_dms(deg, pretty_print=None, ndp=4):
 palmpath = 'S:/pools/t/T-IDP-Projekte-u-Vorlesungen/Meteoblue/Data/PALM Maps/mb_4_multi_stations_xy_N02.00m.nc'
 file = nc.Dataset(palmpath)
 
+
 # WGS84 origin latitude and longitude
 lat = file.origin_lat
 lon = file.origin_lon
 print(f'{lat}, {lon}')
+
 
 # transformation of WGS84 lat/lon to LV95 lat/lon
 lv95_lat, lv95_lon = lv03_to_lv95(file.origin_y, file.origin_x)
@@ -39,6 +41,7 @@ lat_95_transformed, lon_95_transformed = lv_to_wgs84(lv95_lat, lv95_lon, type='l
 print(f'Transformation from LV03:\nlat: {lat_03_transformed}\nlon: {lon_03_transformed}\n\n'
       f'Transformation from LV95:\nlat: {lat_95_transformed}\nlon: {lon_95_transformed} ')
 print(f'  Lat_delta: {lat_03_transformed-lat_95_transformed}\n  Lon_delta: {lon_03_transformed-lon_95_transformed}')
+
 
 # Swisstopo example - WGS84 -> LV95
 lat_dms = '''46°02'38.87"N'''
@@ -51,7 +54,8 @@ lon_deg = (float(deg) + float(minutes)/60 + float(seconds)/(60*60)) * (-1 if dir
 lat_95_transformed, lon_95_transformed = wgs84_to_lv(lat_deg, lon_deg, type='lv95')
 print(f'{lat_95_transformed, lon_95_transformed}')
 
-# Station 1079
+
+# Station 1079 - Hardplatz
 lat_1079 = 47.3824
 lon_1079 = 8.51468
 lv95_lat_1079, lv95_lon_1079 = wgs84_to_lv(lat_1079, lon_1079, type='lv95')
@@ -62,7 +66,8 @@ lon_1079 = 2681255
 wgs_lat_1079, wgs_lon_1079 = lv_to_wgs84(lat_1079, lon_1079, type='lv95')
 print(f'{wgs_lat_1079}, {wgs_lon_1079}')
 
-# Station 941
+
+# Station 941 - Oerlikerpark
 lat_941 = 47.41471
 lon_941 = 8.5160335
 wgs_lat_941, wgs_lon_941 = wgs84_to_lv(lat_941, lon_941, type='lv95')
@@ -72,6 +77,19 @@ lat_941 = 1252127
 lon_941 = 2683023
 wgs_lat_941, wgs_lon_941 = lv_to_wgs84(lat_941, lon_941, type='lv95')
 print(f'{wgs_lat_941}, {wgs_lon_941}')
+
+
+# Station 1129 - Rosengartenstrasse
+lat_1129 = 47.395	
+lon_1129 = 8.52592
+lv95_lat_1129, lv95_lon_1129 = wgs84_to_lv(lat_1129, lon_1129, type='lv95')
+print(f'{lv95_lat_1129}, {lv95_lon_1129}')
+
+lat_1129 = 1249922	
+lon_1129 = 2682085
+wgs_lat_1129, wgs_lon_1129 = lv_to_wgs84(lat_1129, lon_1129, type='lv95')
+print(f'{wgs_lat_1129}, {wgs_lon_1129}')
+
 
 # Siwsstopo example - LV95 -> WGS84
 lv95_lat = 1100000

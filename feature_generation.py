@@ -5,16 +5,16 @@ from warnings import catch_warnings, warn, simplefilter
 import rasterio
 from irradiation import irradiationmap
 from scipy import signal
-from pandas import read_csv, to_datetime
+from pandas import read_csv, to_datetime, DataFrame
 
 
-def in_window(timeframe, times):
+def in_window(timeframe: list, times: list):
     afterStart = (timeframe[0] <= times).to_list()
     beforeEnd = (times <= timeframe[1]).to_list()
     return [a and b for a,b in zip(afterStart, beforeEnd)]
 
 
-def res_adjustment(featuremap, res):
+def res_adjustment(featuremap: np.ndarray, res: int):
     featuremap[featuremap == 0] = np.NaN
     # Case for geofeatures
     if len(featuremap.shape) == 4:
@@ -54,7 +54,8 @@ def res_adjustment(featuremap, res):
     return newmap
 
 
-def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, sigma=3):
+def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: list[str], 
+                    convs: list[int], sigma:int = 3):
     geomaps = np.zeros(shape=(shape[0], len(geofeaturelist) * (len(convs) + 1), shape[1], shape[2]))
     print('\nGenerating Geofeatures')
     for idx, geofeature in enumerate(geofeaturelist):
@@ -86,7 +87,7 @@ def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, sigma=3):
                 else:
                     warn('Convolution sizes must be integer numbers', Warning)
 
-            kernel = signal.gaussian(conv + 1, std=sigma)
+            kernel = signal.gaussian(conv + 1, std=sigma) # type: ignore
             kernel = np.outer(kernel, kernel)
 
             for lon in range(lons[0], lons[1]):
@@ -99,29 +100,25 @@ def generate_geomap(geopath, boundary, shape, geofeaturelist, convs, sigma=3):
     return geomaps
 
 
-def extract_measurement(datapath, times):
-    measurementfile = read_csv(datapath, delimiter=";")
+def extract_measurement(datapath: str, times: list):
+    measurementfile: DataFrame = read_csv(datapath, delimiter=";")
 
     # catch both tz aware and tz naive
     try:
-        # print(f'{to_datetime(measurementfile.iloc[0, 0]).tz_localize("UTC")} > {times[-1]}')
-        # print(f'{to_datetime(measurementfile.iloc[-1, 0]).tz_localize("UTC")} < {times[0]}')
-        if to_datetime(measurementfile.iloc[0, 0]).tz_localize('UTC') > times[-1] or \
-                to_datetime(measurementfile.iloc[-1, 0]).tz_localize('UTC') < times[0]:
+        if to_datetime(str(measurementfile.iloc[0, 0])).tz_localize('UTC') > times[-1] or \
+                to_datetime(str(measurementfile.iloc[-1, 0])).tz_localize('UTC') < times[0]:
             return None
     except TypeError or AttributeError:
-        if to_datetime(measurementfile.iloc[0, 0]) > times[-1] or to_datetime(measurementfile.iloc[-1, 0]) < times[0]:
+        if to_datetime(str(measurementfile.iloc[0, 0])) > times[-1] or \
+            to_datetime(str(measurementfile.iloc[-1, 0])) < times[0]:
             return None
 
     # round times in csv file for matching
-    # print(measurementfile.iloc[0:10, 0])
     for idx, row in measurementfile.iterrows():
-        measurementfile.iloc[idx, 0] = roundTime(to_datetime(row['datetime'])).tz_localize('UTC')
-    # print(measurementfile.iloc[0:10, 0])
+        measurementfile['datetime'].iloc[idx] = roundTime(to_datetime(row['datetime'])).tz_localize('UTC') # type: ignore
 
     measurements = []
     for time in times:
-        # print(measurementfile['datetime'])
         incsv = measurementfile['datetime'] == time
         if np.sum(incsv) == 0:
             measurements.append(0)
@@ -132,25 +129,11 @@ def extract_measurement(datapath, times):
     if np.sum(measurements) == 0:
         return None
 
-    # fill in empty spots using neighbouring values, catches all possible cases
-    # for idx, mes in enumerate(measurements):
-    #     if mes != 0:
-    #         continue
-    #     elif idx == 0 and mes == 0:
-    #         measurements[idx] = measurements[idx + 1]
-    #     elif idx == len(measurements) - 1 and                                                                  mes == 0:
-    #         measurements[idx] = measurements[idx - 1]
-    #     elif mes == 0 and measurements[idx - 1] != 0 and measurements[idx + 1] == 0:
-    #         measurements[idx] = measurements[idx - 1]
-    #     elif mes == 0 and measurements[idx - 1] == 0 and measurements[idx + 1] != 0:
-    #         measurements[idx] = measurements[idx + 1]
-    #     elif mes == 0 and measurements[idx - 1] != 0 and measurements[idx + 1] != 0:
-    #         measurements[idx] = (measurements[idx - 1] + measurements[idx + 1]) / 2
-
     return measurements
 
 
-def generate_measurementmaps(datapath, stations, times, boundary, resolution, purpose):
+def generate_measurementmaps(datapath: str, stations: dict, times: list, boundary: dict, 
+                             resolution: int, purpose: str):
     # create empty array for humidities
     measurementmaps = np.zeros(shape=(len(times),
                                int((boundary['CH_E'] - boundary['CH_W']) / resolution),
@@ -185,13 +168,13 @@ def generate_measurementmaps(datapath, stations, times, boundary, resolution, pu
     if np.sum(measurementmaps) == 0:
         return None, None
 
-    measurementmaps, times = remove_emptytimes(measurementmaps, times)
+    measurementmaps, times = remove_emptytimes(measurementmaps, times) # type: ignore
 
     return measurementmaps, times
 
 
-def tempgen(datapath, stations, times, boundary, resolution):
-    temps, times = generate_measurementmaps(datapath, stations, times, boundary, resolution, 'temp')
+def tempgen(datapath: str, stations: dict, times: list, boundary: dict, resolution: int):
+    temps, times = generate_measurementmaps(datapath, stations, times, boundary, resolution, 'temp') # type: ignore
     if temps is None:
         print(f'N Stations: {len(stations)}')
         warn('No temperature measurements found for the given boundary and times')
@@ -201,13 +184,13 @@ def tempgen(datapath, stations, times, boundary, resolution):
     return temps, times
 
 
-def humigen(datapath, stations, times, boundary, resolution):
-    humimaps, times = generate_measurementmaps(datapath, stations, times, boundary, resolution, 'humi')
+def humigen(datapath: str, stations: dict, times: list, boundary: dict, resolution: int):
+    humimaps, times = generate_measurementmaps(datapath, stations, times, boundary, resolution, 'humi') # type: ignore
     print('Adjusting humidity map resolution')
     # humimaps = res_adjustment(humimaps, res)
     print('\nCalculating Manhattan distance for humidity maps')
     # TIMES REDUCED FOR TESTING!!!!
-    humimaps = manhatten_distance(humimaps)
+    humimaps = manhatten_distance(humimaps) #type: ignore
     try:
         humimaps.dump(os.path.join(os.getcwd(), 'humimaps.pickle'))
     except OverflowError:
@@ -216,7 +199,7 @@ def humigen(datapath, stations, times, boundary, resolution):
     return humimaps, times
 
 
-def geogen(geopath, boundary, humimaps):
+def geogen(geopath: str, boundary: dict, humimaps: np.ndarray):
     geofeaturelist = ["altitude", "buildings", "forests", "pavedsurfaces", "surfacewater", "urbangreen"]
     convs = [10, 30, 100, 200, 500]
     geomaps = generate_geomap(geopath, boundary, humimaps.shape, geofeaturelist, convs)
@@ -228,7 +211,7 @@ def geogen(geopath, boundary, humimaps):
     return geomaps
 
 
-def radgen(boundary, geomaps, times):
+def radgen(boundary: dict, geomaps: np.ndarray, times: list):
     print('    irradiation.....................')
     irrad = irradiationmap(boundary, times, geomaps[0, 0, :, :])
     # irradiation = res_adjustment(irradiation, res)

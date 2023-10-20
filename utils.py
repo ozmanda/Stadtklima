@@ -1,11 +1,12 @@
 import numpy as np
 import time
-import _pickle as cPickle
+import _pickle as cPickle # type: ignore
 import pickle
+import pandas as pd
 # from typing import Literal
 from pandas import to_datetime, Timedelta, Timestamp
 from warnings import warn
-from netCDF4 import Dataset
+from netCDF4 import Dataset # type: ignore
 from scipy.spatial.distance import cdist
 
 # _types = Literal["lv03", "lv95"]
@@ -23,16 +24,16 @@ def roundTime(dt, roundTo=5*60):
     return to_datetime(dt + Timedelta(seconds=rounding-seconds, microseconds=-dt.microsecond))
 
 
-def lv95_to_lv03(lv95_lat, lv95_lon):
+def lv95_to_lv03(lv95_lat: float, lv95_lon: float):
     return lv95_lat - 1000000, lv95_lon - 2000000
 
 
-def lv03_to_lv95(lv03_lat, lv03_lon):
+def lv03_to_lv95(lv03_lat: float, lv03_lon: float):
     return lv03_lat + 1000000, lv03_lon + 2000000
 
 
 # float specification!
-def lv_to_wgs84(lv_lat, lv_lon, type, h_lv=None):
+def lv_to_wgs84(lv_lat: float, lv_lon: float, type: float, h_lv: float = 0):
     if type == 'lv03':
         y_prime: float = (lv_lon - 600000) / 1000000
         x_prime: float = (lv_lat - 200000) / 1000000
@@ -70,7 +71,8 @@ def lv_to_wgs84(lv_lat, lv_lon, type, h_lv=None):
         return wgs84_lat, wgs84_lon
 
 
-def wgs84_to_lv(wgs84_lat, wgs84_lon, type, h_wgs=None, unit='deg'):
+def wgs84_to_lv(wgs84_lat: float, wgs84_lon: float, type, 
+                h_wgs: float = 0, unit: str = 'deg'):
     if unit == 'deg':
         wgs84_lat *= 3600
         wgs84_lon *= 3600
@@ -99,18 +101,18 @@ def wgs84_to_lv(wgs84_lat, wgs84_lon, type, h_wgs=None, unit='deg'):
                + 6.94 * phi_prime
 
     if type == 'lv95' and h_wgs:
-        return lv95_lat, lv95_lon, h_lv
+        return lv95_lat, lv95_lon, h_lv #type: ignore
     elif type == 'lv95' and not h_wgs:
-        return lv95_lat, lv95_lon
+        return lv95_lat, lv95_lon, 0
     elif type == 'lv03':
         lv03_lat, lv03_lon = lv95_to_lv03(lv95_lat, lv95_lon)
         if h_wgs:
-            return lv03_lat, lv03_lon, h_lv
+            return lv03_lat, lv03_lon, h_lv #type: ignore
         else:
-            return lv03_lat, lv03_lon
+            return lv03_lat, lv03_lon, 0
 
 
-def DST_TZ(times):
+def DST_TZ(times: list):
     for idx, time in enumerate(times):
         if Timestamp('2019-03-31 02:00') <= time <= Timestamp('2019-10-27 02:00'):
             time -= Timedelta(hours=2)
@@ -125,14 +127,14 @@ def DST_TZ(times):
     return times
 
 
-def extract_times(origintime, times):
+def extract_times(origintime: np.datetime64, times: list):
     t = []
     for idx, time in enumerate(times):
         t.append(origintime + Timedelta(minutes=np.round(time * 24 * 60)))
     return t
 
 
-def remove_emptytimes(maps, times):
+def remove_emptytimes(maps: np.ndarray, times: np.ndarray):
     print(f'remove_emptylines before: {times.shape}')
     emptytimes = []
     for time in range(maps.shape[0]):
@@ -146,25 +148,25 @@ def remove_emptytimes(maps, times):
     return maps, times
 
 
-def dump_file(path, object):
+def dump_file(path: str, object):
     with open(path, 'wb') as file:
         cPickle.dump(object, file, protocol=pickle.HIGHEST_PROTOCOL)
         file.close()
 
 
-def load_file(path):
+def load_file(path: str):
     with open(path, 'rb') as file:
         object = cPickle.load(file)
         file.close()
     return object
 
 
-def moving_average(temps: np.ndarray, datetime, timedelta=Timedelta(minutes=60)):
+def moving_average(temps: np.ndarray, datetimes: list[pd.Timestamp], timedelta=Timedelta(minutes=60)):
     movingaverage = []
-    for i, time in enumerate(datetime):
+    for i, time in enumerate(datetimes):
         print(f'time {i}: ', end='')
         ma = []
-        for idx, t in enumerate(datetime):
+        for idx, t in enumerate(datetimes):
             if time-timedelta <= t <= time:
                 ma.append(temps[idx])
             elif t > time:
@@ -186,7 +188,7 @@ def moving_average(temps: np.ndarray, datetime, timedelta=Timedelta(minutes=60))
     return movingaverage
 
 
-def manhatten_distance_(featuremaps):
+def manhatten_distance_(featuremaps: np.ndarray):
     print(f'featuremaps shape: {featuremaps.shape}')
     times = featuremaps.shape[0]
     for time in range(times):
@@ -204,8 +206,8 @@ def manhatten_distance_(featuremaps):
     return featuremaps
 
 
-def manhatten_distance(featuremaps):
-    times = featuremaps.shape[0]
+def manhatten_distance(featuremaps: np.ndarray):
+    times: int = featuremaps.shape[0]
     tic1 = time.perf_counter()
     for t in range(times):
         tic2 = time.perf_counter()
@@ -268,12 +270,12 @@ def manhatten_distance(featuremaps):
         print(f'Time for one timestep: {toc2 - tic2:0.4f} seconds')
 
     toc1 = time.perf_counter()
-    print(f'Runtime for {len(times)} timesteps: {toc1 - tic1:0.4f} seconds')
+    print(f'Runtime for {times} timesteps: {toc1 - tic1:0.4f} seconds')
 
     return featuremaps
 
 
-def manhatten_distance_old(featuremaps):
+def manhatten_distance_old(featuremaps: np.ndarray):
     times = featuremaps.shape[0]
     for time in range(times):
         print(f'time {time}/{times}')
@@ -329,7 +331,8 @@ def extract_surfacetemps(palmpath):
     return surf_temps
 
 
-def manhatten_distance(featuremaps):
+#! this used to obscure the earlier manhattan_distance function, if something breaks, check here first
+def _manhatten_distance(featuremaps: np.ndarray):
     times = featuremaps.shape[0]
     full_array = np.zeros(featuremaps.shape)
     for time in range(times):
