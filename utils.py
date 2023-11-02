@@ -161,7 +161,7 @@ def load_file(path: str):
     return object
 
 
-def moving_average(temps: np.ndarray, datetimes: list[pd.Timestamp], timedelta=Timedelta(minutes=60)):
+def moving_average(temps: np.ndarray, datetimes: list, timedelta=Timedelta(minutes=60)):
     movingaverage = []
     for i, time in enumerate(datetimes):
         print(f'time {i}: ', end='')

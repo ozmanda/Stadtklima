@@ -54,8 +54,8 @@ def res_adjustment(featuremap: np.ndarray, res: int):
     return newmap
 
 
-def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: list[str], 
-                    convs: list[int], sigma:int = 3):
+def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: list, 
+                    convs: list, sigma:int = 3):
     geomaps = np.zeros(shape=(shape[0], len(geofeaturelist) * (len(convs) + 1), shape[1], shape[2]))
     print('\nGenerating Geofeatures')
     for idx, geofeature in enumerate(geofeaturelist):

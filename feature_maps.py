@@ -112,7 +112,7 @@ def format_boundaries(boundary):
     return {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
 
 
-def generate_features(datapath: str, geopath: str, stations: dict, boundary: dict, times: list[pd.Timestamp], 
+def generate_features(datapath: str, geopath: str, stations: dict, boundary: dict, times: list, 
                       folder: str, resolution: int = 0, palmhumis: bool = False, palmpath: str = ''):
     # TEMEPRATURE GENERATION
     print('Temperatures........................')
