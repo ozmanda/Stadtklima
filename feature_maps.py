@@ -9,6 +9,7 @@ from metpy.calc import relative_humidity_from_mixing_ratio
 from metpy.units import units
 from pandas import to_datetime, Timedelta, read_csv
 from utils import wgs84_to_lv, extract_times, extract_surfacetemps, dump_file, load_file, moving_average
+import utils
 from feature_generation import tempgen, humigen, geogen, radgen
 
 
@@ -31,7 +32,8 @@ def extract_palm_data(palmpath: str, res: int):
     palmfile: Dataset = Dataset(palmpath, 'r', format='NETCDF4')
 
     print('    determining boundary.....................')
-    CH_S, CH_W, _ = wgs84_to_lv(palmfile.origin_lat, palmfile.origin_lon, 'lv95') #type: ignore
+    CH_S, CH_W = utils.lv03_to_lv95(palmfile.origin_y, palmfile.origin_x)
+    # CH_S, CH_W, _ = wgs84_to_lv(palmfile.origin_lat, palmfile.origin_lon, 'lv95') #type: ignore
     CH_N = CH_S + palmfile.dimensions['x'].size * res
     CH_E = CH_W + palmfile.dimensions['y'].size * res
     boundary = {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
@@ -208,14 +210,20 @@ def add_geos(d: dict, geos: np.ndarray):
     return d
 
 
+def datetime_maps(datetimes: list, times: list):
+    # create time and datetime maps
+    datetime_map = np.empty(shape=rad.shape, dtype=np.dtype('U20'))
+    time_map = np.empty(shape=rad.shape, dtype=np.dtype('U20'))
+    for idx, dt in enumerate(datetimes):
+        datetime_map[idx, :, :] = str(dt)
+        time_map[idx, :, :] = str(times[idx])
+
+
 # WRAPPER FUNCTIONS ---------------------------------------------------------------------------------------------------
-# TODO: turn this into two separate functions for validation and inference cases
-# TODO: identify repeated functions and generalise them for validation and inference cases
-def generate_featuremaps(type: str, datapath: str, geopath: str, stationinfo: str, savepath: str, palmpath: str = '', 
-                         res: int = 16, boundary_wgs84: list = [], times: list = [], palmhumi: bool = False):
+def validation_featuremaps(datapath: str, geopath: str, stationinfo: str, savepath: str, palmpath: str, 
+                           res: int = 16, palmhumi: bool = False):
     """
-    Function to generate feature maps for validation and inference cases. For validation cases, PALM simulation data is 
-    used to generate feature and target temperature maps. For inference cases, the target temperature maps are not generated.
+    Function to generate feature maps validation. PALM simulation data is used to generate feature and target temperature maps
 
     Args:
         type (str): Type of feature map to be generated, either "validation" or "inference"
@@ -232,68 +240,77 @@ def generate_featuremaps(type: str, datapath: str, geopath: str, stationinfo: st
     Raises:
         ValueError: Upon receiving a type other than "validation" or "inference"
     """
-    # Set folder name for intermediate steps, boundaries and times for both validation and inference cases
-    boundary: dict = {}
-    times: np.ndarray = np.array([])
-    if type == 'validation':
-        folder = f'DATA/QRF_Inference_Feature_Maps/{os.path.basename(palmpath).split(".nc")[0]}_palmhumi'
-        boundary, times = extract_palm_data(palmpath, res)
-        dump_file(f'{os.path.splitext(palmpath)[0]}_boundary.z', boundary)
-    elif type == 'inference':
-        folder = f'INFERENCE/{args.boundary[0]}-{args.boundary[1]}_{args.boundary[2]}_{args.boundary[3]}-' \
-                 f'{args.time[0].replace("/", "-")}_{args.time[1].replace("/", "-")}'
-        boundary = format_boundaries(boundary_wgs84)
-        times = time_generation(times)
-    else:
-        warn('Invalid type passed to feature map generation, only "validation" and "inference" accepted')
-        raise ValueError
-
-    # Ensure folder exists
+    # set folder name for intermediate steps, boundaries and times
+    folder = f'DATA/QRF_Inference_Feature_Maps/{os.path.basename(palmpath).split(".nc")[0]}_palmhumi_new_2'
     if not os.path.isdir(folder):
         os.mkdir(folder)
+    savefile = f'{os.path.basename(palmpath).split(".nc")[0]}_palmhumi.json'
+
+    boundary, times = extract_palm_data(palmpath, res)
+    dump_file(f'{os.path.splitext(palmpath)[0]}_boundary.z', boundary)
+
+    print('PALM surface temperatures..........')
+    if os.path.isfile(os.path.join(folder, 'PALM_surfacetemps.z')):
+        temps = load_file(os.path.join(folder, 'PALM_surfacetemps.z'))
+    else:
+        temps = extract_surfacetemps(palmpath)
+        dump_file(os.path.join(folder, 'PALM_surfacetemps.z'), temps)
 
     # identify stations and generate featuremaps within the boundaries based on these stations
     stations = stations_loc(boundary, stationinfo)
     datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, folder, res,
                                                               palmhumis=palmhumi, palmpath=palmpath)
-
-    # Extract surface temperature from PALM simulation for validation type
-    if type == 'validation':
-        print('PALM surface temperatures..........')
-        if os.path.isfile(os.path.join(folder, 'PALM_surfacetemps.z')):
-            temps = load_file(os.path.join(folder, 'PALM_surfacetemps.z'))
-        else:
-            temps = extract_surfacetemps(palmpath)
-            dump_file(os.path.join(folder, 'PALM_surfacetemps.z'), temps)
-
-    # create time and datetime maps
-    datetime_map = np.empty(shape=rad.shape, dtype=np.dtype('U20'))
-    time_map = np.empty(shape=rad.shape, dtype=np.dtype('U20'))
-    for idx, dt in enumerate(datetimes):
-        datetime_map[idx, :, :] = str(dt)
-        time_map[idx, :, :] = str(times[idx])
-
-    # create feature dictionary and then DataFrame - flattened version
-    # maps = {'datetime': np.ravel(datetime_map), 'time': np.ravel(time_map)}
-    # maps = add_geos(maps, geo)
-    # maps = {**maps, 'humidity': np.ravel(humis), 'irradiation': np.ravel(rad), 'moving_average': np.ravel(ma)}
-    # feature_dataframe = DataFrame(maps)
-
-    # create feature dictionary - unflattened version
+    datetime_map, time_map = datetime_maps(datetimes, times)
+    
+    # create feature dictionary - unflattened version (validation case)
     maps = {'datetime': datetime_map, 'time': time_map}
     maps = add_geos(maps, geo)
     maps = {**maps, 'humidity': humis, 'irradiation': rad, 'moving_average': ma, 'temperature': temps}
     print(f'moving_average shape: {ma.shape}')
 
+    savepath = os.path.join(savepath, savefile)
+    dump_file(savepath, maps)
+
+
+def inference_featuremaps(datapath: str, geopath: str, stationinfo: str, savepath: str, boundary: list, times: list):
+    """
+    Function to generate feature maps inference cases. Target temperature maps are not generated and the output is flattened.
+
+    Args:
+        type (str): Type of feature map to be generated, either "validation" or "inference"
+        datapath (str): Path to station-based measurement data
+        geopath (str): Path to geospatial data
+        stationinfo (str): Path to station information
+        savepath (str): Path to save folder
+        boundary (listl): Boundary of the maps (inference case). Defaults to None.
+        times (list): Start and end times for the generated maps. Defaults to None.
+    """
+    folder = f'INFERENCE/{args.boundary[0]}-{args.boundary[1]}_{args.boundary[2]}_{args.boundary[3]}-' \
+             f'{args.time[0].replace("/", "-")}_{args.time[1].replace("/", "-")}'
+    if not os.path.isdir(folder):
+        os.mkdir(folder)
+
+    boundary = format_boundaries(boundary)
+    times = time_generation(times)
+
+    # identify stations and generate featuremaps within the boundaries based on these stations
+    stations = stations_loc(boundary, stationinfo)
+    datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, folder, 
+                                                              res = 16, palmpath='')
+    datetime_map, time_map = datetime_maps(datetimes, times)
+
+    # create feature dictionary and then DataFrame - flattened version (inference case)
+    maps = {'datetime': np.ravel(datetime_map), 'time': np.ravel(time_map)}
+    maps = add_geos(maps, geo)
+    maps = {**maps, 'humidity': np.ravel(humis), 'irradiation': np.ravel(rad), 'moving_average': np.ravel(ma)}
+    feature_dataframe = DataFrame(maps)
+
     # generate filename and save dataset
     starttime = f'{datetime_map[0, 0, 0][0:10]}-{datetime_map[0, 0, 0][11:16]}'.replace(':', '.')
     endtime = f'{datetime_map[-1, 0, 0][0:10]}-{datetime_map[-1, 0, 0][11:16]}'.replace(':', '.')
-    if boundary_wgs84:
-        filename = f'{type}_{starttime}_{endtime}_{boundary_wgs84[0]}-{boundary_wgs84[1]}_' \
-                   f'{boundary_wgs84[2]}-{boundary_wgs84[3]}.json'
-    elif palmpath:
-        filename = f'{os.path.basename(palmpath).split(".nc")[0]}_palmhumi.json'
-
+    filename = f'{type}_{starttime}_{endtime}_{boundary_wgs84[0]}-{boundary_wgs84[1]}_' \
+                f'{boundary_wgs84[2]}-{boundary_wgs84[3]}.json'
+    
     savepath = os.path.join(savepath, filename)
     dump_file(savepath, maps)
 
