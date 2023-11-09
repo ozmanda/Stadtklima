@@ -61,24 +61,26 @@ def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: 
     for idx, geofeature in enumerate(geofeaturelist):
         print(f'    {geofeature}...')
         featuremap = rasterio.open(os.path.join(geopath, f'{geofeature}.tif'))
-        originlat = featuremap.meta['transform'][5]  # gives northern boundary
-        originlon = featuremap.meta['transform'][2]  # gives western boundary
+        geo_N = featuremap.meta['transform'][5]  # gives northern boundary
+        geo_W = featuremap.meta['transform'][2]  # gives western boundary
         # transform to LV95 coordinates
-        originlat, originlon = lv03_to_lv95(originlat, originlon)
+        geo_N, geo_W = lv03_to_lv95(geo_N, geo_W)
+        geo_S = geo_N - featuremap.shape[2]
+        geo_E = geo_W + featuremap.shape[1]
         featuremap = featuremap.read()
         featuremap[featuremap == -9999] = 0
 
-        if boundary['CH_E'] < originlon or originlon + featuremap.shape[1] < boundary['CH_W'] or \
-                originlat < boundary['CH_S'] or originlat-featuremap.shape[2] > boundary['CH_N']:
+        if boundary['CH_E'] > geo_E or boundary['CH_W'] < geo_W or \
+                boundary['CH_S'] < geo_S or boundary['CH_N'] > geo_N:
             warn(f'geofeature map {geofeature} incomplete', Warning)
-            print(f'Border geomap:     N {int(originlat)}, S {int(originlat-featuremap.shape[2])}, '
-                  f'W {int(originlon)}, E {int(originlon + featuremap.shape[1])}')
+            print(f'Border geomap:     N {int(geo_N)}, S {int(geo_S)}, '
+                  f'W {int(geo_W)}, E {int(geo_E)}')
             print(f'Border featuremap: N {int(boundary["CH_N"])}, S {int(boundary["CH_S"])}, '
                   f'W {int(boundary["CH_W"])}, E {int(boundary["CH_E"])}')
             raise ValueError
 
-        lons = [int(np.round(boundary['CH_W'] - originlon)), int(np.round(boundary['CH_E'] - originlon))]
-        lats = [int(np.round(originlat - boundary['CH_N'])), int(np.round(originlat - boundary['CH_S']))]
+        lons = [int(np.round(boundary['CH_W'] - geo_W)), int(np.round(boundary['CH_E'] - geo_W))]
+        lats = [int(np.round(geo_N - boundary['CH_N'])), int(np.round(geo_N - boundary['CH_S']))]
         print('    convolutions...')
         for idx, conv in enumerate(convs):
             if conv % 2 != 0:
@@ -189,7 +191,6 @@ def humigen(datapath: str, stations: dict, times: list, boundary: dict, resoluti
     print('Adjusting humidity map resolution')
     # humimaps = res_adjustment(humimaps, res)
     print('\nCalculating Manhattan distance for humidity maps')
-    # TIMES REDUCED FOR TESTING!!!!
     humimaps = manhatten_distance(humimaps) #type: ignore
     try:
         humimaps.dump(os.path.join(os.getcwd(), 'humimaps.pickle'))
