@@ -208,14 +208,9 @@ def manhatten_distance_(featuremaps: np.ndarray):
 
 def manhatten_distance(featuremaps: np.ndarray):
     times: int = featuremaps.shape[0]
-    tic1 = time.perf_counter()
     for t in range(times):
-        tic2 = time.perf_counter()
-        print(f'time {t+1}/{times}')
-        tic3 = time.perf_counter()
+        print(f'time {t+1}/{times}', end='\r')
         full = np.where(featuremaps[t, :, :] != 0)
-        toc3 = time.perf_counter()
-        print(f'Time for np.where for whole map: {toc3 - tic3:0.4f} seconds')
         for idxs, val in np.ndenumerate(featuremaps[t]):
             if val:
                 featuremaps[t, idxs[0], idxs[1]] = val
@@ -225,53 +220,31 @@ def manhatten_distance(featuremaps: np.ndarray):
                 d = 1
                 rows = []
                 cols = []
-                tic3 = time.perf_counter()
-                print('While Loop started')
                 while not filled:
                     lims = {'row_start': idxs[0]-d,
                             'row_end': idxs[0]+d,
                             'col_start': idxs[1]-d,
                             'col_end': idxs[1]+d}
-                    tic4 = time.perf_counter()
                     # if one of the row numbers correspond to the row number of a cell with value
                     if lims['row_start'] in full[0] or lims['row_end'] in full[0]:
                         # find idx of matching row
-                        tic5 = time.perf_counter()
                         pos = np.where([x == lims['row_start'] or x == lims['row_end'] for x in full[0]])[0]
-                        toc5 = time.perf_counter()
-                        print(f'Time for row np.where evaluation: {toc5-tic5:0.4f} seconds')
                         for p in pos:
                             if full[1][p] in range(lims['col_start'], lims['col_end'] + 1):
                                 rows.append(full[0][p])
                                 cols.append(full[1][p])
-                    toc4 = time.perf_counter()
-                    print(f'Time for row evaluation: {toc4 - tic4:0.4f}')
-                    tic4 = time.perf_counter()
                     if lims['col_start'] in full[1] or lims['col_end'] in full[1]:
                         # find idx of matching column
-                        tic5 = time.perf_counter()
                         pos = np.where([x == lims['col_start'] or x == lims['col_end'] for x in full[1]])[0]
-                        toc5 = time.perf_counter()
-                        print(f'Time for column np.where evaluation: {toc5-tic5:0.4f} seconds')
                         for p in pos:
                             if full[0][p] in range(lims['row_start'] + 1, lims['row_end']):
                                 rows.append(full[0][p])
                                 cols.append(full[1][p])
-                    toc4 = time.perf_counter()
-                    print(f'Time for column evaluation: {toc4 - tic4:0.4f}')
                     if rows and cols:
                         filled = True
                     else:
                         d += 1
-                toc3 = time.perf_counter()
-                print(f'Time for while loop: {toc3 - tic3:04f} seconds')
                 featuremaps[t, idxs[0], idxs[1]] = np.mean(featuremaps[t, rows, cols])
-        toc2 = time.perf_counter()
-        print(f'Time for one timestep: {toc2 - tic2:0.4f} seconds')
-
-    toc1 = time.perf_counter()
-    print(f'Runtime for {times} timesteps: {toc1 - tic1:0.4f} seconds')
-
     return featuremaps
 
 
@@ -331,8 +304,9 @@ def extract_surfacetemps(palmpath):
     return surf_temps
 
 
-#! this used to obscure the earlier manhattan_distance function, if something breaks, check here first
-def _manhatten_distance(featuremaps: np.ndarray):
+#! this used to obscure the earlier manhattan_distance function, if something breaks, check here first --> reinstated to see if its faster
+#! TODO: I think this is the faster function, needs to be properly evaluated tho (ushe)
+def manhatten_distance(featuremaps: np.ndarray):
     times = featuremaps.shape[0]
     full_array = np.zeros(featuremaps.shape)
     for time in range(times):
