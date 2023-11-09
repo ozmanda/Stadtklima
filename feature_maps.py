@@ -26,6 +26,7 @@ def extract_palm_data(palmpath: str, res: int):
     """
     Extracts times, temperature and boundary coordinates from PALM file. PALM coordinates are extracted as latitude
     and longitude (WGS84) and converted to LV95 projection coordinates.
+    PALM: origin_x contains the longitude, origin_y contains the latitude.
     """
     print('Extracting PALM File data....................')
     print('    loading PALM file........................')
@@ -34,10 +35,9 @@ def extract_palm_data(palmpath: str, res: int):
     print('    determining boundary.....................')
     CH_S, CH_W = utils.lv03_to_lv95(palmfile.origin_y, palmfile.origin_x)
     # CH_S, CH_W, _ = wgs84_to_lv(palmfile.origin_lat, palmfile.origin_lon, 'lv95') #type: ignore
-    CH_N = CH_S + palmfile.dimensions['x'].size * res
-    CH_E = CH_W + palmfile.dimensions['y'].size * res
+    CH_N = CH_S + palmfile.dimensions['y'].size * res
+    CH_E = CH_W + palmfile.dimensions['x'].size * res
     boundary = {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
-
 
     print('    extracting times.........................')
     times = np.array(extract_times(to_datetime(palmfile.origin_time), palmfile['time']))
@@ -47,7 +47,7 @@ def extract_palm_data(palmpath: str, res: int):
 
 def palm_humi(palmpath):
     """
-    Extracts water vapor mixing ratio from PALM file and transforms it into rela00tive humidity maps
+    Extracts water vapor mixing ratio from PALM file and transforms it into relative humidity maps
     :param palmpath: path to PALM simulation file
     :return: 3-dimensional humidity map
     """
@@ -112,50 +112,45 @@ def format_boundaries(boundary):
     CH_S, CH_E = wgs84_to_lv(boundary[0], boundary[2], 'lv95') #type: ignore
     CH_N, CH_W = wgs84_to_lv(boundary[1], boundary[3], 'lv95') #type: ignore
     return {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
+    
+
+def temperature_maps(datapath: str, stations: dict, times: list, boundary: dict, resolution: int, folder: str):
+    # temperature and time generation
+    temps, times = tempgen(datapath, stations, times, boundary, resolution)
+
+    # save intermediate step
+    dump_file(os.path.join(folder, 'temps.z'), temps)
+    dump_file(os.path.join(folder, 'times.z'), times)
+
+    # generate manhattan distance maps and save
+    md = manhatten_distance(temps)
+    dump_file(os.path.join(folder, 'manhattan.z'), md)
+
+    # calculate moving average of manhattan distance maps
+    ma = moving_average(md, times)
+    dump_file(os.path.join(folder, 'ma.z'), ma)
+    return ma
 
 
 def generate_features(datapath: str, geopath: str, stations: dict, boundary: dict, times: list, 
                       folder: str, resolution: int = 0, palmhumis: bool = False, palmpath: str = ''):
+    #! does it matter for the output if we do moving average or manhattan distance first?
+    # 1. temps -> manhattan distance -> moving average
     # TEMEPRATURE GENERATION
     print('Temperatures........................')
-    if os.path.isfile(os.path.join(folder, 'temps.z')):
-        # load temperatures and times
-        temps = load_file(os.path.join(folder, 'temps.z'))
-        times = load_file(os.path.join(folder, 'times.z'))
-
-        # if manhattan distance calculations done, load otherwise call function
-        print('Moving average..................')
-        if os.path.isfile(os.path.join(folder, 'ma.z')):
-            ma = load_file(os.path.join(folder, 'ma.z'))
-
-        elif os.path.isfile(os.path.join(folder, 'manhattan.z')):
-            md = load_file(os.path.join(folder, 'manhattan.z'))
-
-            ma = moving_average(md, times)
-            dump_file(os.path.join(folder, 'ma.z'), ma)
-
-        else:
-            print('Manhattan Distance..............')
+    if os.path.isfile(os.path.join(folder, 'ma.z')):
+        ma = load_file(os.path.join(folder, 'ma.z'))
+    else: 
+        if os.path.isfile(os.path.join(folder, 'md.z')):
+            md = load_file(os.path.join(folder, 'md.z'))
+        elif os.path.isfile(os.path.join(folder, 'temps.z')):
+            temps = load_file(os.path.join(folder, 'temps.z'))
             md = manhatten_distance(temps)
             dump_file(os.path.join(folder, 'manhattan.z'), md)
-
             ma = moving_average(md, times)
             dump_file(os.path.join(folder, 'ma.z'), ma)
-    else:
-        # temperature and time generation
-        temps, times = tempgen(datapath, stations, times, boundary, resolution)
-
-        # save intermediate step
-        dump_file(os.path.join(folder, 'temps.z'), temps)
-        dump_file(os.path.join(folder, 'times.z'), times)
-
-        # generate manhattan distance maps and save
-        md = manhatten_distance(temps)
-        dump_file(os.path.join(folder, 'manhattan.z'), md)
-
-        # calculate moving average of manhattan distance maps
-        ma = moving_average(md, times)
-        dump_file(os.path.join(folder, 'ma.z'), ma)
+        else:
+            ma = temperature_maps(datapath, stations, times, boundary, resolution, folder)        
 
     print('Humidities..........................')
     if palmhumis:
@@ -353,12 +348,12 @@ if __name__ == '__main__':
             warn('Inference times were entered in an unreadable format. Try again with "YYYY/MM/DD_HH:MM"')
             raise e
 
-        generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath,
-                             boundary_wgs84=args.boundary, times=times, palmhumi=args.palmhumi)
+        inference_featuremaps(args.measurementpath, args.geopath, args.stationinfo, args.savepath,
+                             boundary_wgs84=args.boundary, times=times)
 
         
     elif args.mode == 'validation':
         assert os.path.isfile(args.palmfile), 'Valid PALM simulation file must be given'
-        generate_featuremaps(args.mode, args.measurementpath, args.geopath, args.stationinfo, args.savepath,
+        validation_featuremaps(args.measurementpath, args.geopath, args.stationinfo, args.savepath,
                              palmpath=args.palmfile, res=args.res, palmhumi=args.palmhumi)
 
