@@ -33,6 +33,30 @@ lat = file.origin_lat
 lon = file.origin_lon
 print(f'{lat}, {lon}')
 
+# assumptions
+res = 16
+domain = 6272
+
+# orignin latitude and longitude in LV03
+origin_lat_CH = file.origin_y
+origin_lon_CH = file.origin_x
+print(f'LV03: {origin_lat_CH}, {origin_lon_CH}')
+origin_lat_CH_adj = origin_lat_CH - 960
+origin_lon_CH_adj = origin_lon_CH - 960
+print(f'LV03 adj: {origin_lat_CH_adj}, {origin_lon_CH_adj}')
+origin_lon_adj = lv_to_wgs84(origin_lat_CH_adj, origin_lon_CH_adj, type='lv03')
+
+# LV03 NW corner
+LV03_N_lat = origin_lat_CH + domain
+print(f'LV03 NW corner: {LV03_N_lat}, {origin_lon_CH}')
+
+# LV03 NE corner
+LV03_E_lon = origin_lon_CH + domain
+print(f'LV03 NE corner: {LV03_N_lat}, {LV03_E_lon}')
+
+# LV03 SE corner
+print(f'LV03 SE corner: {origin_lat_CH}, {LV03_E_lon}')
+
 
 # transformation of WGS84 lat/lon to LV95 lat/lon
 lv95_lat, lv95_lon = lv03_to_lv95(file.origin_y, file.origin_x)
