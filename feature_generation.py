@@ -136,6 +136,7 @@ def extract_measurement(datapath: str, times: list):
 
 def generate_measurementmaps(datapath: str, stations: dict, times: list, boundary: dict, 
                              resolution: int, purpose: str):
+    # TODO: create a logging function to log station within the dataset and those without data at these times.
     # create empty array for humidities
     measurementmaps = np.zeros(shape=(len(times),
                                int((boundary['CH_E'] - boundary['CH_W']) / resolution),
@@ -164,7 +165,8 @@ def generate_measurementmaps(datapath: str, stations: dict, times: list, boundar
             idxlon = int((int(stations[stationname]['lon']) - boundary['CH_W'])/resolution)
             measurementmaps[:, idxlon, idxlat] = measurements
         except Exception:
-            warn(f'Adding humidities for station {stationname} failed, skipping this station.')
+            warn(f'Adding {"humidity" if purpose == "humi" else "temperature"} for station {stationname} failed,' 
+                 f'skipping this station.')
             continue
 
     if np.sum(measurementmaps) == 0:
