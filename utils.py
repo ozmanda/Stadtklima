@@ -49,7 +49,6 @@ def lv_to_wgs84(lv_lat: float, lv_lon: float, type: float, h_lv: float = 0):
                    0.791484 * y_prime * x_prime + \
                    0.130600 * y_prime * x_prime**2 - \
                    0.043600 * y_prime**3
-    print(f'y prime: {y_prime}\nlambda prime: {lambda_prime}')
 
     phi_prime: float = 16.9023892 + \
                 3.238272 * x_prime - \
@@ -57,7 +56,6 @@ def lv_to_wgs84(lv_lat: float, lv_lon: float, type: float, h_lv: float = 0):
                 0.002528 * x_prime**2 - \
                 0.044700 * x_prime + y_prime**2 - \
                 0.014000 * x_prime**3
-    print(f'x_prime: {x_prime}\nphi prime: {phi_prime}')
 
     wgs84_lat: float = (phi_prime * 100) / 36
     wgs84_lon: float = (lambda_prime * 100) / 36
