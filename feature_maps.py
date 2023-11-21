@@ -205,10 +205,10 @@ def add_geos(d: dict, geos: np.ndarray):
     return d
 
 
-def datetime_maps(datetimes: list, times: list):
+def datetime_maps(datetimes: list, times: list, shape: tuple = (1, 1, 1)):
     # create time and datetime maps
-    datetime_map = np.empty(shape=rad.shape, dtype=np.dtype('U20'))
-    time_map = np.empty(shape=rad.shape, dtype=np.dtype('U20'))
+    datetime_map = np.empty(shape=shape, dtype=np.dtype('U20'))
+    time_map = np.empty(shape=shape, dtype=np.dtype('U20'))
     for idx, dt in enumerate(datetimes):
         datetime_map[idx, :, :] = str(dt)
         time_map[idx, :, :] = str(times[idx])
@@ -255,7 +255,7 @@ def validation_featuremaps(datapath: str, geopath: str, stationinfo: str, savepa
     stations = stations_loc(boundary, stationinfo)
     datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, folder, res,
                                                               palmhumis=palmhumi, palmpath=palmpath)
-    datetime_map, time_map = datetime_maps(datetimes, times)
+    datetime_map, time_map = datetime_maps(datetimes, times, rad.shape)
     
     # create feature dictionary - unflattened version (validation case)
     maps = {'datetime': datetime_map, 'time': time_map}
@@ -292,7 +292,7 @@ def inference_featuremaps(datapath: str, geopath: str, stationinfo: str, savepat
     stations = stations_loc(boundary, stationinfo)
     datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, folder, 
                                                               res = 16, palmpath='')
-    datetime_map, time_map = datetime_maps(datetimes, times)
+    datetime_map, time_map = datetime_maps(datetimes, times, rad.shape)
 
     # create feature dictionary and then DataFrame - flattened version (inference case)
     maps = {'datetime': np.ravel(datetime_map), 'time': np.ravel(time_map)}
