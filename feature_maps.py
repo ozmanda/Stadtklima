@@ -298,13 +298,11 @@ def inference_featuremaps(datapath: str, geopath: str, stationinfo: str, savepat
     maps = {'datetime': np.ravel(datetime_map), 'time': np.ravel(time_map)}
     maps = add_geos(maps, geo)
     maps = {**maps, 'humidity': np.ravel(humis), 'irradiation': np.ravel(rad), 'moving_average': np.ravel(ma)}
-    feature_dataframe = DataFrame(maps)
 
     # generate filename and save dataset
     starttime = f'{datetime_map[0, 0, 0][0:10]}-{datetime_map[0, 0, 0][11:16]}'.replace(':', '.')
     endtime = f'{datetime_map[-1, 0, 0][0:10]}-{datetime_map[-1, 0, 0][11:16]}'.replace(':', '.')
-    filename = f'{type}_{starttime}_{endtime}_{boundary_wgs84[0]}-{boundary_wgs84[1]}_' \
-                f'{boundary_wgs84[2]}-{boundary_wgs84[3]}.json'
+    filename = f'{type}_{starttime}_{endtime}_{boundary[0]}-{boundary[1]}_{boundary[2]}-{boundary[3]}.json'
     
     savepath = os.path.join(savepath, filename)
     dump_file(savepath, maps)
