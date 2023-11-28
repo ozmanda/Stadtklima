@@ -212,6 +212,7 @@ def datetime_maps(datetimes: list, times: list, shape: tuple = (1, 1, 1)):
     for idx, dt in enumerate(datetimes):
         datetime_map[idx, :, :] = str(dt)
         time_map[idx, :, :] = str(times[idx])
+    return datetime_map, time_map
 
 
 # WRAPPER FUNCTIONS ---------------------------------------------------------------------------------------------------
