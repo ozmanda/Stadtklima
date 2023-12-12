@@ -56,50 +56,106 @@ def res_adjustment(featuremap: np.ndarray, res: int):
 
 def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: list, 
                     convs: list, sigma:int = 3):
-    geomaps = np.zeros(shape=(shape[0], len(geofeaturelist) * (len(convs) + 1), shape[1], shape[2]))
+    '''
+    Generates a geomap from the given geofeatures and convolutions.
+    :param geopath: path to geofeatures
+    :param boundary: boundary of the map
+    :param shape: shape of the map, already reduced to the resolution of the PALM simulation files
+    :param geofeaturelist: list of geofeatures
+    :param convs: list of convolutions
+    :param sigma: sigma for gaussian convolution
+    :return: geomap with shape (n_geofeatures * n_convolutions+1, height of humimap, width of humimap)
+    '''
+    geomaps = np.zeros(shape=(len(geofeaturelist) * (len(convs) + 1), shape[0], shape[1], shape[2]))
     print('\nGenerating Geofeatures')
     for idx, geofeature in enumerate(geofeaturelist):
         print(f'    {geofeature}...')
-        featuremap = rasterio.open(os.path.join(geopath, f'{geofeature}.tif'))
-        geo_N = featuremap.meta['transform'][5]  # gives northern boundary
-        geo_W = featuremap.meta['transform'][2]  # gives western boundary
-        # transform to LV95 coordinates
-        geo_N, geo_W = lv03_to_lv95(geo_N, geo_W)
-        geo_S = geo_N - featuremap.shape[2]
-        geo_E = geo_W + featuremap.shape[1]
-        featuremap = featuremap.read()
-        featuremap[featuremap == -9999] = 0
 
-        if boundary['CH_E'] > geo_E or boundary['CH_W'] < geo_W or \
-                boundary['CH_S'] < geo_S or boundary['CH_N'] > geo_N:
+        # load feature map, get border and check that it is complete
+        featuremap, geo_border = load_geomap(os.path.join(geopath, f'{geofeature}.tif'))
+        if boundary['CH_E'] > geo_border['E'] or boundary['CH_W'] < geo_border['W'] or \
+                boundary['CH_S'] < geo_border['S'] or boundary['CH_N'] > geo_border['N']:
             warn(f'geofeature map {geofeature} incomplete', Warning)
-            print(f'Border geomap:     N {int(geo_N)}, S {int(geo_S)}, '
-                  f'W {int(geo_W)}, E {int(geo_E)}')
-            print(f'Border featuremap: N {int(boundary["CH_N"])}, S {int(boundary["CH_S"])}, '
-                  f'W {int(boundary["CH_W"])}, E {int(boundary["CH_E"])}')
+            print(f'Border geomap:     N {int(geo_border['N'])}, S {int(geo_border['S'])}, W {int(geo_border['W'])}, E {int(geo_border['E'])}')
+            print(f'Border featuremap: N {int(boundary["CH_N"])}, S {int(boundary["CH_S"])}, W {int(boundary["CH_W"])}, E {int(boundary["CH_E"])}')
             raise ValueError
+        
+        # create padded feature map for convolutions
+        padded_featuremap = np.empty(shape=(featuremap.shape[0] + np.max(convs), 
+                                            featuremap.shape[1] + np.max(convs)))
+        padded_featuremap[:] = np.NaN
 
-        lons = [int(np.round(boundary['CH_W'] - geo_W)), int(np.round(boundary['CH_E'] - geo_W))]
-        lats = [int(np.round(geo_N - boundary['CH_N'])), int(np.round(geo_N - boundary['CH_S']))]
+        # indices locating the PALM simulation map in the geofeature map
+        palm_geoidxs = {'N': int(np.round(geo_border['N'] - boundary['CH_N'])),
+                        'S': int(np.round(geo_border['N'] - boundary['CH_S'])),
+                        'W': int(np.round(boundary['CH_W'] - geo_border['W'])),
+                        'E': int(np.round(boundary['CH_E'] - geo_border['W']))}
+        
+        # add uncovoluted feature map to geomaps
+        geomaps[idx*(len(convs)+1), :, :, :] = featuremap[palm_geoidxs['N']:palm_geoidxs['S'], 
+                                                          palm_geoidxs['W']:palm_geoidxs['E']]
+        
+        # indices locating padded feature map in the geofeature map
+        #* can be negative or larger than the geofeature map, indicating that padding is required in that dimension
+        padded_geoidxs = {'N': palm_geoidxs['N'] - (np.max(convs)/2),
+                          'S': palm_geoidxs['S'] + (np.max(convs)/2),
+                          'W': palm_geoidxs['W'] - (np.max(convs)/2),
+                          'E': palm_geoidxs['E'] + (np.max(convs)/2)}
+        
+        # indices indicating where the geofeature map is located in the padded map (starting with the assumption
+        # that the geofeature map is sufficient and no padding is needed)
+        featuremap_paddedidxs = {'N': 0,
+                                  'S': padded_featuremap.shape[0]-1,
+                                  'W': 0,
+                                  'E': padded_featuremap.shape[1]-1}
+        
+        #* if padding exceeds the geofeature map, the featuremap_paddedidxs must be adjusted
+        for i in ['N', 'W']:
+            if padded_geoidxs[i] < 0:
+                featuremap_paddedidxs[i] = abs(padded_geoidxs[i])
+                padded_geoidxs[i] = 0
+        if padded_geoidxs['S'] > featuremap.shape[0]:
+            padding = padded_geoidxs['S'] - featuremap.shape[0]
+            featuremap_paddedidxs['S'] = padded_featuremap.shape[0] - padding
+            padded_geoidxs['S'] = featuremap.shape[0]
+        if padded_geoidxs['E'] > featuremap.shape[1]:
+            padding = padded_geoidxs['E'] - featuremap.shape[1]
+            featuremap_paddedidxs['E'] = padded_featuremap.shape[1] - padding
+            padded_geoidxs['E'] = featuremap.shape[1]
+
+        # fill padded feature map with values from feature map
+        padded_featuremap[featuremap_paddedidxs['N']:featuremap_paddedidxs['S'],
+                          featuremap_paddedidxs['W']:featuremap_paddedidxs['E']] = featuremap[padded_geoidxs['N']:padded_geoidxs['S'],
+                                                                                               padded_geoidxs['W']:padded_geoidxs['E']]
+
+        # add convoluted feature maps to geomaps
         print('    convolutions...')
-        for idx, conv in enumerate(convs):
-            if conv % 2 != 0:
-                if conv % 2 == 1:
-                    conv -= 1
-                else:
-                    warn('Convolution sizes must be integer numbers', Warning)
-
+        for conv_idx, conv in enumerate(convs):
             kernel = signal.gaussian(conv + 1, std=sigma) # type: ignore
             kernel = np.outer(kernel, kernel)
 
-            for lon in range(lons[0], lons[1]):
-                for lat in range(lats[0] - lats[1]):
-                    idxs = np.array([[int(lat - conv / 2), int(lat + conv / 2 + 1)],
-                                     [int(lon - conv / 2), int(lon + conv / 2 + 1)]])
-                    geomaps[:, idx * len(geofeaturelist)+conv+1, lon, lat] = np.nanmean(featuremap[0,
-                                                                                        idxs[0, 0]:idxs[0, 1],
-                                                                                        idxs[1, 0]:idxs[1, 1]] * kernel)
+            # fill by column in row
+            for lon in range(palm_geoidxs['W'], palm_geoidxs['E']+1):
+                for lat in range(palm_geoidxs['N'], palm_geoidxs['S']+1):
+                    geo_array = padded_featuremap[int(lat - conv / 2):int(lat + conv / 2 + 1),
+                                                    int(lon - conv / 2):int(lon + conv / 2 + 1)]
+                    gaussian_array = geo_array * kernel
+                    geomaps[idx * len(geofeaturelist)+conv_idx+1, :, lon, lat] = np.nanmean(gaussian_array)
     return geomaps
+
+
+def load_geomap(path):
+    featuremap = rasterio.open(path)
+    geo_N = featuremap.meta['transform'][5]  # gives northern boundary
+    geo_W = featuremap.meta['transform'][2]  # gives western boundary
+    # transform to LV95 coordinates
+    geo_N, geo_W = lv03_to_lv95(geo_N, geo_W)
+    geo_S = geo_N - featuremap.shape[1]
+    geo_E = geo_W + featuremap.shape[0]
+    featuremap = featuremap.read()[0, :, :]
+    featuremap[featuremap < 0] = 0
+    borders = {'N': geo_N, 'S': geo_S, 'W': geo_W, 'E': geo_E}
+    return featuremap, borders
 
 
 def extract_measurement(datapath: str, times: list):
@@ -204,7 +260,9 @@ def humigen(datapath: str, stations: dict, times: list, boundary: dict, resoluti
 
 def geogen(geopath: str, boundary: dict, humimaps: np.ndarray):
     geofeaturelist = ["altitude", "buildings", "forests", "pavedsurfaces", "surfacewater", "urbangreen"]
-    convs = [10, 30, 100, 200, 500]
+    #! fixed to be meaningful for a resolution of 16m, original convs are [10, 30, 100, 200, 500]
+    #* convs must always be even, 
+    convs = [32, 48, 112, 208, 512]
     geomaps = generate_geomap(geopath, boundary, humimaps.shape, geofeaturelist, convs)
     try:
         geomaps.dump(os.path.join(os.getcwd(), 'geomaps_nores.pickle'))
