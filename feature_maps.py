@@ -201,7 +201,7 @@ def add_geos_flattened(d: dict, geos: np.ndarray):
 
 def add_geos(d: dict, geos: np.ndarray):
     for idx, feature in enumerate(geofeatures):
-        d[feature] = geos[:, idx, :, :]
+        d[feature] = geos[idx, :, :, :]
     return d
 
 
@@ -237,7 +237,7 @@ def validation_featuremaps(datapath: str, geopath: str, stationinfo: str, savepa
         ValueError: Upon receiving a type other than "validation" or "inference"
     """
     # set folder name for intermediate steps, boundaries and times
-    folder = f'DATA/QRF_Inference_Feature_Maps/{os.path.basename(palmpath).split(".nc")[0]}_palmhumi_new_2'
+    folder = f'DATA/QRF_Inference_Feature_Maps/{os.path.basename(palmpath).split(".nc")[0]}_final'
     if not os.path.isdir(folder):
         os.mkdir(folder)
     savefile = f'{os.path.basename(palmpath).split(".nc")[0]}_palmhumi.json'
