@@ -76,7 +76,7 @@ def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: 
         if boundary['CH_E'] > geo_border['E'] or boundary['CH_W'] < geo_border['W'] or \
                 boundary['CH_S'] < geo_border['S'] or boundary['CH_N'] > geo_border['N']:
             warn(f'geofeature map {geofeature} incomplete', Warning)
-            print(f'Border geomap:     N {int(geo_border['N'])}, S {int(geo_border['S'])}, W {int(geo_border['W'])}, E {int(geo_border['E'])}')
+            print(f'Border geomap:     N {int(geo_border["N"])}, S {int(geo_border["S"])}, W {int(geo_border["W"])}, E {int(geo_border["E"])}')
             print(f'Border featuremap: N {int(boundary["CH_N"])}, S {int(boundary["CH_S"])}, W {int(boundary["CH_W"])}, E {int(boundary["CH_E"])}')
             raise ValueError
         
