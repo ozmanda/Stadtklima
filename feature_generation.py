@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from utils import lv03_to_lv95, roundTime, manhatten_distance, moving_average, remove_emptytimes
+from utils import lv03_to_lv95, roundTime, manhatten_distance, reduce_resolution, remove_emptytimes
 from warnings import catch_warnings, warn, simplefilter
 import rasterio
 from irradiation import irradiationmap
@@ -55,7 +55,7 @@ def res_adjustment(featuremap: np.ndarray, res: int):
 
 
 def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: list, 
-                    convs: list, sigma:int = 3):
+                    convs: list, sigma:int = 3, resolution=16):
     '''
     Generates a geomap from the given geofeatures and convolutions.
     :param geopath: path to geofeatures
@@ -66,24 +66,21 @@ def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: 
     :param sigma: sigma for gaussian convolution
     :return: geomap with shape (n_geofeatures * n_convolutions+1, height of humimap, width of humimap)
     '''
+    # geomaps is in the shape which considers the resolution (i.e., it is already reduced)
     geomaps = np.zeros(shape=(len(geofeaturelist) * (len(convs) + 1), shape[0], shape[1], shape[2]))
     print('\nGenerating Geofeatures')
     for idx, geofeature in enumerate(geofeaturelist):
         print(f'    {geofeature}...')
 
-        # load feature map, get border and check that it is complete
+        # load feature map, get border and check that it is complete. Any negative values are assign NaN
         featuremap, geo_border = load_geomap(os.path.join(geopath, f'{geofeature}.tif'))
+        featuremap[featuremap < 0] = np.nan
         if boundary['CH_E'] > geo_border['E'] or boundary['CH_W'] < geo_border['W'] or \
                 boundary['CH_S'] < geo_border['S'] or boundary['CH_N'] > geo_border['N']:
             warn(f'geofeature map {geofeature} incomplete', Warning)
             print(f'Border geomap:     N {int(geo_border["N"])}, S {int(geo_border["S"])}, W {int(geo_border["W"])}, E {int(geo_border["E"])}')
             print(f'Border featuremap: N {int(boundary["CH_N"])}, S {int(boundary["CH_S"])}, W {int(boundary["CH_W"])}, E {int(boundary["CH_E"])}')
             raise ValueError
-        
-        # create padded feature map for convolutions
-        padded_featuremap = np.empty(shape=(featuremap.shape[0] + np.max(convs), 
-                                            featuremap.shape[1] + np.max(convs)))
-        padded_featuremap[:] = np.NaN
 
         # indices locating the PALM simulation map in the geofeature map
         palm_geoidxs = {'N': int(np.round(geo_border['N'] - boundary['CH_N'])),
@@ -91,56 +88,94 @@ def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: 
                         'W': int(np.round(boundary['CH_W'] - geo_border['W'])),
                         'E': int(np.round(boundary['CH_E'] - geo_border['W']))}
         
-        # add uncovoluted feature map to geomaps
-        geomaps[idx*(len(convs)+1), :, :, :] = featuremap[palm_geoidxs['N']:palm_geoidxs['S'], 
-                                                          palm_geoidxs['W']:palm_geoidxs['E']]
+        # add uncovoluted feature map to geomaps after adjusting to the proper resolution
+        geomaps[idx*(len(convs)+1), :, :, :] = reduce_resolution(featuremap[palm_geoidxs['N']:palm_geoidxs['S'], 
+                                                                            palm_geoidxs['W']:palm_geoidxs['E']],
+                                                                resolution)
         
-        # indices locating padded feature map in the geofeature map
-        #* can be negative or larger than the geofeature map, indicating that padding is required in that dimension
-        padded_geoidxs = {'N': palm_geoidxs['N'] - (np.max(convs)/2),
-                          'S': palm_geoidxs['S'] + (np.max(convs)/2),
-                          'W': palm_geoidxs['W'] - (np.max(convs)/2),
-                          'E': palm_geoidxs['E'] + (np.max(convs)/2)}
         
-        # indices indicating where the geofeature map is located in the padded map (starting with the assumption
-        # that the geofeature map is sufficient and no padding is needed)
-        featuremap_paddedidxs = {'N': 0,
-                                  'S': padded_featuremap.shape[0]-1,
-                                  'W': 0,
-                                  'E': padded_featuremap.shape[1]-1}
-        
-        #* if padding exceeds the geofeature map, the featuremap_paddedidxs must be adjusted
-        for i in ['N', 'W']:
-            if padded_geoidxs[i] < 0:
-                featuremap_paddedidxs[i] = abs(padded_geoidxs[i])
-                padded_geoidxs[i] = 0
-        if padded_geoidxs['S'] > featuremap.shape[0]:
-            padding = padded_geoidxs['S'] - featuremap.shape[0]
-            featuremap_paddedidxs['S'] = padded_featuremap.shape[0] - padding
-            padded_geoidxs['S'] = featuremap.shape[0]
-        if padded_geoidxs['E'] > featuremap.shape[1]:
-            padding = padded_geoidxs['E'] - featuremap.shape[1]
-            featuremap_paddedidxs['E'] = padded_featuremap.shape[1] - padding
-            padded_geoidxs['E'] = featuremap.shape[1]
+        # create padded feature map for convolutions - full resolution
+        padded_featuremap = np.empty(shape=((shape[1]*resolution + np.max(convs)), 
+                                            (shape[2]*resolution + np.max(convs))))
+        padded_featuremap[:] = np.NaN
+        print(f'padded_featuremap shape: {padded_featuremap.shape}')
 
-        # fill padded feature map with values from feature map
-        padded_featuremap[featuremap_paddedidxs['N']:featuremap_paddedidxs['S'],
-                          featuremap_paddedidxs['W']:featuremap_paddedidxs['E']] = featuremap[padded_geoidxs['N']:padded_geoidxs['S'],
-                                                                                               padded_geoidxs['W']:padded_geoidxs['E']]
+        # calculate the amount that padding exceeds geofeature map per edge
+        #* negative values indicate that padding exceeds the map in that direction
+        padding_over = {'N': int(palm_geoidxs['N'] - (np.max(convs)/2)),
+                   'S': featuremap.shape[0] - int(palm_geoidxs['S'] + (np.max(convs)/2)),
+                   'W': int(palm_geoidxs['W'] - (np.max(convs)/2)),
+                   'E': featuremap.shape[1] - int(palm_geoidxs['E'] + (np.max(convs)/2))}
 
+        for key in padding_over.keys():
+            if padding_over[key] < 0:
+                padding_over[key] = abs(padding_over[key])
+            else: 
+                padding_over[key] = 0
+
+        # two index sets: 1. start and end of padded featuremap covered by the geomap (assumption is the whole padded map)
+        #                 2. indices for the start and end of the padded featuremap within the geomap (used to extract data)
+        filled_paddedmap = {'N': 0,
+                            'S': padded_featuremap.shape[0]-1,
+                            'W': 0,
+                            'E': padded_featuremap.shape[1]-1}
+        geomapidxs_padded = {'N': int(palm_geoidxs['N'] - (np.max(convs)/2)),
+                             'S': int(palm_geoidxs['S'] + (np.max(convs)/2) -1),
+                             'W': int(palm_geoidxs['W'] - (np.max(convs)/2)),
+                             'E': int(palm_geoidxs['E'] + (np.max(convs)/2) -1)}
+        if padding_over['N']:
+            geomapidxs_padded['N'] = 0
+            filled_paddedmap['N'] = padding_over['N']
+        if padding_over['S']:
+            geomapidxs_padded['S'] = featuremap.shape[0]
+            filled_paddedmap['S'] = padded_featuremap.shape[0] - padding_over['S']
+        if padding_over['W']:
+            geomapidxs_padded['W'] = 0
+            filled_paddedmap['W'] = padding_over['W']
+        if padding_over['E']:
+            geomapidxs_padded['E'] = 0
+            filled_paddedmap['E'] = padded_featuremap.shape[1] - padding_over['E']
+
+        # fill geodata into padded map using the indices
+        padded_featuremap[filled_paddedmap['N']:filled_paddedmap['S']+1, 
+                          filled_paddedmap['W']:filled_paddedmap['E']+1] = featuremap[geomapidxs_padded['N']:geomapidxs_padded['S']+1,
+                                                                                      geomapidxs_padded['W']:geomapidxs_padded['E']+1]
+
+        # reduce padded_featuremap resolution
+        padded_featuremap = reduce_resolution(padded_featuremap, resolution=resolution)
         # add convoluted feature maps to geomaps
         print('    convolutions...')
+        max_conv_pad = (np.max(convs)/resolution)/2
+        array_idxs = {'N': int(0+max_conv_pad), 
+                      'S': int(padded_featuremap.shape[0]-max_conv_pad),
+                      'W': int(0+max_conv_pad), 
+                      'E': int(padded_featuremap.shape[1]-max_conv_pad)}
         for conv_idx, conv in enumerate(convs):
-            kernel = signal.gaussian(conv + 1, std=sigma) # type: ignore
+            conv_pad = (conv/2)/resolution
+            print(f'      conv {conv}')
+            # empty array for convolutions in reduced size
+            conv_array = np.zeros(shape=(shape[1], shape[2]))
+            kernel = signal.gaussian(conv/resolution + 1, std=sigma) # type: ignore
             kernel = np.outer(kernel, kernel)
 
             # fill by column in row
-            for lon in range(palm_geoidxs['W'], palm_geoidxs['E']+1):
-                for lat in range(palm_geoidxs['N'], palm_geoidxs['S']+1):
-                    geo_array = padded_featuremap[int(lat - conv / 2):int(lat + conv / 2 + 1),
-                                                    int(lon - conv / 2):int(lon + conv / 2 + 1)]
+            
+            for lat in range(0, conv_array.shape[0]):
+                print(f'row {lat}/{conv_array.shape[0]}')
+                for lon in range(0, conv_array.shape[1]): 
+                    geo_array = padded_featuremap[int(lat+array_idxs['N']-conv_pad): int(lat+array_idxs['N']+conv_pad)+1,
+                                                  int(lon+array_idxs['W']-conv_pad): int(lon+array_idxs['W']+conv_pad)+1]
+                    if geo_array.shape != kernel.shape:
+                        print(geo_array.shape)
+                        print('padded feature map excerpt:')
+                        print(f'    {int(lat+array_idxs["N"]-conv_pad)}:{int(lat+array_idxs["N"]+conv_pad)+1}')
+                        print(f'    {int(lon+array_idxs["W"]-conv_pad)}:{int(lon+array_idxs["W"]+conv_pad)+1}')
+                        print('Cell:')
+                        print(f'    lat: {lat}/{conv_array.shape[0]}\n    lon: {lon}/{conv_array.shape[1]}')
                     gaussian_array = geo_array * kernel
-                    geomaps[idx * len(geofeaturelist)+conv_idx+1, :, lon, lat] = np.nanmean(gaussian_array)
+                    conv_array[lat, lon] = np.nanmean(gaussian_array)
+
+            geomaps[idx * len(geofeaturelist)+conv_idx+1, :, :, :] = conv_array
     return geomaps
 
 
@@ -261,7 +296,7 @@ def humigen(datapath: str, stations: dict, times: list, boundary: dict, resoluti
 def geogen(geopath: str, boundary: dict, humimaps: np.ndarray):
     geofeaturelist = ["altitude", "buildings", "forests", "pavedsurfaces", "surfacewater", "urbangreen"]
     #! fixed to be meaningful for a resolution of 16m, original convs are [10, 30, 100, 200, 500]
-    #* convs must always be even, 
+    #* convs must always be even when divided by the resolution (considers either side)
     convs = [32, 48, 112, 208, 512]
     geomaps = generate_geomap(geopath, boundary, humimaps.shape, geofeaturelist, convs)
     try:
@@ -275,9 +310,4 @@ def geogen(geopath: str, boundary: dict, humimaps: np.ndarray):
 def radgen(boundary: dict, geomaps: np.ndarray, times: list):
     print('    irradiation.....................')
     irrad = irradiationmap(boundary, times, geomaps[0, 0, :, :])
-    # irradiation = res_adjustment(irradiation, res)
-    try:
-        irrad.dump(os.path.join(os.getcwd(), 'irradiation.pickle'))
-    except OverflowError:
-        warn('Data larger than 4GiB and cannot be serialised for saving.')
     return irrad

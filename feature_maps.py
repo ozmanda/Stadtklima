@@ -23,10 +23,14 @@ geofeatures = ['altitude', 'buildings', 'buildings_10', 'buildings_30', 'buildin
 pressure = 1013.25
 
 def extract_palm_data(palmpath: str, res: int):
+    #* has been checked, times are correct
     """
     Extracts times, temperature and boundary coordinates from PALM file. PALM coordinates are extracted as latitude
     and longitude (WGS84) and converted to LV95 projection coordinates.
     PALM: origin_x contains the longitude, origin_y contains the latitude.
+    
+    times: array of times
+    t: list of boolean values, indicating if a moving-average value is available
     """
     print('Extracting PALM File data....................')
     print('    loading PALM file........................')
@@ -40,9 +44,10 @@ def extract_palm_data(palmpath: str, res: int):
     boundary = {'CH_S': CH_S, 'CH_N': CH_N, 'CH_E': CH_E, 'CH_W': CH_W}
 
     print('    extracting times.........................')
-    times = np.array(extract_times(to_datetime(palmfile.origin_time), palmfile['time']))
+    times, t_bool = extract_times(to_datetime(palmfile.origin_time), palmfile['time'])
+    times = np.array(times)
 
-    return boundary, times
+    return boundary, times, t_bool
 
 
 def palm_humi(palmpath):
@@ -81,6 +86,24 @@ def palm_humi(palmpath):
     surf_humis = np.flip(surf_humis, axis=1)
 
     return surf_humis
+
+
+def palm_temp(surfacetemps, t):
+    """
+    Performs moving average calculation using the array of surface temperatures using the boolean list 
+    indicating for which times a MA exists --> implies the stride length for the moving average calculation,
+    keeps it generalised.
+    :param surfacetemps: path to PALM simulation file
+    :param t: list of boolean values indicating the existance of MA values
+    :return: 3-dimensional moving-average temperature map
+    """
+    print('Extracting PALM temperature data.............')
+    # iterate through all times
+    stride_ma = np.sum([not x for x in t])
+    ma = np.zeros(shape=(len(t), surfacetemps.shape[1], surfacetemps.shape[2]))
+    for time_idx in range(ma.shape[0]-stride_ma):
+        ma[time_idx+stride_ma, :, :] = np.mean(surfacetemps[time_idx:time_idx+stride_ma, :, :], axis=0)
+    return ma
 
 
 def stations_loc(boundary, stationdata):
@@ -133,24 +156,30 @@ def temperature_maps(datapath: str, stations: dict, times: list, boundary: dict,
 
 
 def generate_features(datapath: str, geopath: str, stations: dict, boundary: dict, times: list, 
-                      folder: str, resolution: int = 0, palmhumis: bool = False, palmpath: str = ''):
+                      folder: str, resolution: int = 0, palmhumis: bool = False, 
+                      palmtemps: bool = False, palmpath: str = ''):
     #! does it matter for the output if we do moving average or manhattan distance first?
+    # TODO: one dictionary with all features
     # 1. temps -> manhattan distance -> moving average
     # TEMEPRATURE GENERATION
     print('Temperatures........................')
-    if os.path.isfile(os.path.join(folder, 'ma.z')):
-        ma = load_file(os.path.join(folder, 'ma.z'))
-    else: 
-        if os.path.isfile(os.path.join(folder, 'md.z')):
-            md = load_file(os.path.join(folder, 'md.z'))
-        elif os.path.isfile(os.path.join(folder, 'temps.z')):
-            temps = load_file(os.path.join(folder, 'temps.z'))
-            md = manhatten_distance(temps)
-            dump_file(os.path.join(folder, 'manhattan.z'), md)
-            ma = moving_average(md, times)
-            dump_file(os.path.join(folder, 'ma.z'), ma)
-        else:
-            ma = temperature_maps(datapath, stations, times, boundary, resolution, folder)        
+    if palmtemps:
+        print('   ignoring ma temp calculation')
+        ma = None
+    else:
+        if os.path.isfile(os.path.join(folder, 'ma.z')):
+            ma = load_file(os.path.join(folder, 'ma.z'))
+        else: 
+            if os.path.isfile(os.path.join(folder, 'md.z')):
+                md = load_file(os.path.join(folder, 'md.z'))
+            elif os.path.isfile(os.path.join(folder, 'temps.z')):
+                temps = load_file(os.path.join(folder, 'temps.z'))
+                md = manhatten_distance(temps)
+                dump_file(os.path.join(folder, 'manhattan.z'), md)
+                ma = moving_average(md, times)
+                dump_file(os.path.join(folder, 'ma.z'), ma)
+            else:
+                ma = temperature_maps(datapath, stations, times, boundary, resolution, folder)        
 
     print('Humidities..........................')
     if palmhumis:
@@ -164,6 +193,7 @@ def generate_features(datapath: str, geopath: str, stations: dict, boundary: dic
     else:
         if os.path.isfile(os.path.join(folder, 'humimaps.z')):
             humimaps = load_file(os.path.join(folder, 'humimaps.z'))
+            times = load_file(os.path.join(folder, 'times.z'))
         else:
             humimaps, times = humigen(datapath, stations, times, boundary, resolution)
             dump_file(os.path.join(folder, 'humimaps.z'), humimaps)
@@ -217,7 +247,7 @@ def datetime_maps(datetimes: list, times: list, shape: tuple = (1, 1, 1)):
 
 # WRAPPER FUNCTIONS ---------------------------------------------------------------------------------------------------
 def validation_featuremaps(datapath: str, geopath: str, stationinfo: str, savepath: str, palmpath: str, 
-                           res: int = 16, palmhumi: bool = False):
+                           res: int = 16, palmhumi: bool = False, palmtemps: bool = False):
     """
     Function to generate feature maps validation. PALM simulation data is used to generate feature and target temperature maps
 
@@ -237,12 +267,12 @@ def validation_featuremaps(datapath: str, geopath: str, stationinfo: str, savepa
         ValueError: Upon receiving a type other than "validation" or "inference"
     """
     # set folder name for intermediate steps, boundaries and times
-    folder = f'DATA/QRF_Inference_Feature_Maps/{os.path.basename(palmpath).split(".nc")[0]}_final'
+    folder = f'DATA/QRF_PALM_Feature_Maps_fast/{os.path.basename(palmpath).split(".nc")[0]}_palm_data'
     if not os.path.isdir(folder):
         os.mkdir(folder)
     savefile = f'{os.path.basename(palmpath).split(".nc")[0]}_palmhumi.json'
 
-    boundary, times = extract_palm_data(palmpath, res)
+    boundary, times, t_bool = extract_palm_data(palmpath, res)
     dump_file(f'{os.path.splitext(palmpath)[0]}_boundary.z', boundary)
 
     print('PALM surface temperatures..........')
@@ -255,9 +285,23 @@ def validation_featuremaps(datapath: str, geopath: str, stationinfo: str, savepa
     # identify stations and generate featuremaps within the boundaries based on these stations
     stations = stations_loc(boundary, stationinfo)
     datetimes, times, humis, geo, rad, ma = generate_features(datapath, geopath, stations, boundary, times, folder, res,
-                                                              palmhumis=palmhumi, palmpath=palmpath)
+                                                              palmhumis=palmhumi, palmtemps=palmtemps, palmpath=palmpath)
+    print(f'irradiation shape: {rad.shape}')
     datetime_map, time_map = datetime_maps(datetimes, times, rad.shape)
+
+    if palmtemps:
+        print('PALM moving average temperature')
+        ma = palm_temp(temps, t_bool)
     
+    # remove times lost to moving average calculation
+    datetime_map = datetime_map[t_bool, :, :]
+    time_map = time_map[t_bool, :, :]
+    geo = geo[:, t_bool, :, :]
+    humis = humis[t_bool, :, :]
+    rad = rad[t_bool, :, :]
+    ma = ma[t_bool, :, :]
+    temps = temps[t_bool, :, :]
+
     # create feature dictionary - unflattened version (validation case)
     maps = {'datetime': datetime_map, 'time': time_map}
     maps = add_geos(maps, geo)
@@ -328,7 +372,9 @@ if __name__ == '__main__':
                                                           'format %Y/%m/%d_%H:%M')
     # Validation arguments
     parser.add_argument('--palmfile', type=str, help='Path to PALM file')
-    parser.add_argument('--palmhumi', type=bool, default=False, help='Should humidity be taken from PALM simulation')
+    parser.add_argument('--palmhumi', type=bool, default=False, help='Should humidity be taken from PALM simulation?')
+    parser.add_argument('--palmtemp', type=bool, default=False, help='Should moving average temperature be taken from'
+                                                                        'PALM simulation?')
     parser.add_argument('--res', type=int, help='PALM file resolution [m]', default=16)
 
     args = parser.parse_args()
@@ -354,5 +400,5 @@ if __name__ == '__main__':
     elif args.mode == 'validation':
         assert os.path.isfile(args.palmfile), 'Valid PALM simulation file must be given'
         validation_featuremaps(args.measurementpath, args.geopath, args.stationinfo, args.savepath,
-                             palmpath=args.palmfile, res=args.res, palmhumi=args.palmhumi)
+                             palmpath=args.palmfile, res=args.res, palmhumi=args.palmhumi, palmtemps=args.palmtemp)
 

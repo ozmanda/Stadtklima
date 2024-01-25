@@ -125,11 +125,26 @@ def DST_TZ(times: list):
     return times
 
 
-def extract_times(origintime: np.datetime64, times: list):
-    t = []
-    for idx, time in enumerate(times):
-        t.append(origintime + Timedelta(minutes=np.round(time * 24 * 60)))
-    return t
+def extract_times(origintime: np.datetime64, times_list: list):
+    """
+    Extracts the time vector, formatting it as a datetime. The time contained within the PALM file is given as
+    seconds since origin. Additionally, a boolean vector is generated, indicating the start of the useable time
+    series (certain observations are required to create the moving average).
+    """
+    times = []
+    print(f'times list length: {len(times_list)}')
+    for _, time in enumerate(times_list):
+        times.append(origintime + Timedelta(minutes=np.round(time * 24 * 60)))
+
+    #* lost observations fixed, for most PALM files it is 2/56 which are lost
+    # lost observations for the one hour moving average: 60 min / timedelta
+    td_minutes = (times[2]-times[1]).total_seconds() / 60
+    lost_obs = int(60/td_minutes)
+    t_bool = [True] * len(times)
+    t_bool[0:lost_obs] = [False] * lost_obs
+    if not times:
+        raise ValueError
+    return times, t_bool
 
 
 def remove_emptytimes(maps: np.ndarray, times: np.ndarray):
@@ -332,3 +347,17 @@ def end_timer():
     (t_min, t_sec) = divmod(t_sec, 60)
     (t_hour, t_min) = divmod(t_min, 60)
     print(f'Time: {t_hour}:{t_min}:{t_sec}')
+
+
+def reduce_resolution(array, resolution):
+    """
+    Reduces the dimension of a given array by the resolution. A 10x10 array with a resolution of 2 would return a 5x5 
+    array. The method averages all 
+    """
+    new_array = np.zeros(shape=(int(array.shape[0]/resolution), int(array.shape[1]/resolution)))
+    for row in range(new_array.shape[0]):
+        for col in range(new_array.shape[1]):
+            new_array[row, col] = np.mean(array[row*resolution:row*resolution+resolution, 
+                                                col*resolution:col*resolution+resolution])
+        return new_array
+    
