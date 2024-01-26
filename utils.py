@@ -352,12 +352,13 @@ def end_timer():
 def reduce_resolution(array, resolution):
     """
     Reduces the dimension of a given array by the resolution. A 10x10 array with a resolution of 2 would return a 5x5 
-    array. The method averages all 
+    array. The method uses a simple average 
     """
     new_array = np.zeros(shape=(int(array.shape[0]/resolution), int(array.shape[1]/resolution)))
     for row in range(new_array.shape[0]):
         for col in range(new_array.shape[1]):
-            new_array[row, col] = np.mean(array[row*resolution:row*resolution+resolution, 
+            new_array[row, col] = np.nanmean(array[row*resolution:row*resolution+resolution, 
                                                 col*resolution:col*resolution+resolution])
-        return new_array
+        
+    return new_array
     

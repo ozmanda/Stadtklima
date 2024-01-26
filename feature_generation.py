@@ -71,7 +71,12 @@ def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: 
     print('\nGenerating Geofeatures')
     for idx, geofeature in enumerate(geofeaturelist):
         print(f'    {geofeature}...')
+        if geofeature == 'altitude':
+            geofeature_idx = 0
+        else:
+            geofeature_idx = idx*(len(convs)+1)-5
 
+        #* issue with geofeatures is not from loading
         # load feature map, get border and check that it is complete. Any negative values are assign NaN
         featuremap, geo_border = load_geomap(os.path.join(geopath, f'{geofeature}.tif'))
         featuremap[featuremap < 0] = np.nan
@@ -88,94 +93,96 @@ def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: 
                         'W': int(np.round(boundary['CH_W'] - geo_border['W'])),
                         'E': int(np.round(boundary['CH_E'] - geo_border['W']))}
         
+        #* there is data within the geomap at this point
         # add uncovoluted feature map to geomaps after adjusting to the proper resolution
-        geomaps[idx*(len(convs)+1), :, :, :] = reduce_resolution(featuremap[palm_geoidxs['N']:palm_geoidxs['S'], 
-                                                                            palm_geoidxs['W']:palm_geoidxs['E']],
+        geomaps[geofeature_idx, :, :, :] = reduce_resolution(featuremap[palm_geoidxs['N']:palm_geoidxs['S'], 
+                                                                        palm_geoidxs['W']:palm_geoidxs['E']],
                                                                 resolution)
+        # print(f'geomap min/max = {np.min(geomaps[geofeature_idx, 0, :, :])}/{np.max(geomaps[idx*(len(convs)+1), 0, :, :])}')
         
         
-        # create padded feature map for convolutions - full resolution
-        padded_featuremap = np.empty(shape=((shape[1]*resolution + np.max(convs)), 
-                                            (shape[2]*resolution + np.max(convs))))
-        padded_featuremap[:] = np.NaN
-        print(f'padded_featuremap shape: {padded_featuremap.shape}')
+        if geofeature != 'altitude':
+            # create padded feature map for convolutions - full resolution
+            padded_featuremap = np.empty(shape=((shape[1]*resolution + np.max(convs)), 
+                                                (shape[2]*resolution + np.max(convs))))
+            padded_featuremap[:] = np.NaN
 
-        # calculate the amount that padding exceeds geofeature map per edge
-        #* negative values indicate that padding exceeds the map in that direction
-        padding_over = {'N': int(palm_geoidxs['N'] - (np.max(convs)/2)),
-                   'S': featuremap.shape[0] - int(palm_geoidxs['S'] + (np.max(convs)/2)),
-                   'W': int(palm_geoidxs['W'] - (np.max(convs)/2)),
-                   'E': featuremap.shape[1] - int(palm_geoidxs['E'] + (np.max(convs)/2))}
+            # calculate the amount that padding exceeds geofeature map per edge
+            #* negative values indicate that padding exceeds the map in that direction
+            padding_over = {'N': int(palm_geoidxs['N'] - (np.max(convs)/2)),
+                    'S': featuremap.shape[0] - int(palm_geoidxs['S'] + (np.max(convs)/2)),
+                    'W': int(palm_geoidxs['W'] - (np.max(convs)/2)),
+                    'E': featuremap.shape[1] - int(palm_geoidxs['E'] + (np.max(convs)/2))}
 
-        for key in padding_over.keys():
-            if padding_over[key] < 0:
-                padding_over[key] = abs(padding_over[key])
-            else: 
-                padding_over[key] = 0
+            for key in padding_over.keys():
+                if padding_over[key] < 0:
+                    padding_over[key] = abs(padding_over[key])
+                else: 
+                    padding_over[key] = 0
 
-        # two index sets: 1. start and end of padded featuremap covered by the geomap (assumption is the whole padded map)
-        #                 2. indices for the start and end of the padded featuremap within the geomap (used to extract data)
-        filled_paddedmap = {'N': 0,
-                            'S': padded_featuremap.shape[0]-1,
-                            'W': 0,
-                            'E': padded_featuremap.shape[1]-1}
-        geomapidxs_padded = {'N': int(palm_geoidxs['N'] - (np.max(convs)/2)),
-                             'S': int(palm_geoidxs['S'] + (np.max(convs)/2) -1),
-                             'W': int(palm_geoidxs['W'] - (np.max(convs)/2)),
-                             'E': int(palm_geoidxs['E'] + (np.max(convs)/2) -1)}
-        if padding_over['N']:
-            geomapidxs_padded['N'] = 0
-            filled_paddedmap['N'] = padding_over['N']
-        if padding_over['S']:
-            geomapidxs_padded['S'] = featuremap.shape[0]
-            filled_paddedmap['S'] = padded_featuremap.shape[0] - padding_over['S']
-        if padding_over['W']:
-            geomapidxs_padded['W'] = 0
-            filled_paddedmap['W'] = padding_over['W']
-        if padding_over['E']:
-            geomapidxs_padded['E'] = 0
-            filled_paddedmap['E'] = padded_featuremap.shape[1] - padding_over['E']
+            # two index sets: 1. start and end of padded featuremap covered by the geomap (assumption is the whole padded map)
+            #                 2. indices for the start and end of the padded featuremap within the geomap (used to extract data)
+            filled_paddedmap = {'N': 0,
+                                'S': padded_featuremap.shape[0]-1,
+                                'W': 0,
+                                'E': padded_featuremap.shape[1]-1}
+            geomapidxs_padded = {'N': int(palm_geoidxs['N'] - (np.max(convs)/2)),
+                                'S': int(palm_geoidxs['S'] + (np.max(convs)/2) -1),
+                                'W': int(palm_geoidxs['W'] - (np.max(convs)/2)),
+                                'E': int(palm_geoidxs['E'] + (np.max(convs)/2) -1)}
+            if padding_over['N']:
+                geomapidxs_padded['N'] = 0
+                filled_paddedmap['N'] = padding_over['N']
+            if padding_over['S']:
+                geomapidxs_padded['S'] = featuremap.shape[0]
+                filled_paddedmap['S'] = padded_featuremap.shape[0] - padding_over['S']
+            if padding_over['W']:
+                geomapidxs_padded['W'] = 0
+                filled_paddedmap['W'] = padding_over['W']
+            if padding_over['E']:
+                geomapidxs_padded['E'] = 0
+                filled_paddedmap['E'] = padded_featuremap.shape[1] - padding_over['E']
 
-        # fill geodata into padded map using the indices
-        padded_featuremap[filled_paddedmap['N']:filled_paddedmap['S']+1, 
-                          filled_paddedmap['W']:filled_paddedmap['E']+1] = featuremap[geomapidxs_padded['N']:geomapidxs_padded['S']+1,
-                                                                                      geomapidxs_padded['W']:geomapidxs_padded['E']+1]
+            # fill geodata into padded map using the indices
+            padded_featuremap[filled_paddedmap['N']:filled_paddedmap['S']+1, 
+                            filled_paddedmap['W']:filled_paddedmap['E']+1] = featuremap[geomapidxs_padded['N']:geomapidxs_padded['S']+1,
+                                                                                        geomapidxs_padded['W']:geomapidxs_padded['E']+1]
 
-        # reduce padded_featuremap resolution
-        padded_featuremap = reduce_resolution(padded_featuremap, resolution=resolution)
-        # add convoluted feature maps to geomaps
-        print('    convolutions...')
-        max_conv_pad = (np.max(convs)/resolution)/2
-        array_idxs = {'N': int(0+max_conv_pad), 
-                      'S': int(padded_featuremap.shape[0]-max_conv_pad),
-                      'W': int(0+max_conv_pad), 
-                      'E': int(padded_featuremap.shape[1]-max_conv_pad)}
-        for conv_idx, conv in enumerate(convs):
-            conv_pad = (conv/2)/resolution
-            print(f'      conv {conv}')
-            # empty array for convolutions in reduced size
-            conv_array = np.zeros(shape=(shape[1], shape[2]))
-            kernel = signal.gaussian(conv/resolution + 1, std=sigma) # type: ignore
-            kernel = np.outer(kernel, kernel)
+            # reduce padded_featuremap resolution
+            padded_featuremap = reduce_resolution(padded_featuremap, resolution=resolution)
+            padded_featuremap[padded_featuremap == 0] = np.nan
+            # add convoluted feature maps to geomaps
+            print('    convolutions...')
+            max_conv_pad = (np.max(convs)/resolution)/2
+            array_idxs = {'N': int(0+max_conv_pad), 
+                        'S': int(padded_featuremap.shape[0]-max_conv_pad),
+                        'W': int(0+max_conv_pad), 
+                        'E': int(padded_featuremap.shape[1]-max_conv_pad)}
+            for conv_idx, conv in enumerate(convs):
+                conv_pad = (conv/2)/resolution
+                print(f'      conv {conv}')
+                # empty array for convolutions in reduced size
+                conv_array = np.zeros(shape=(shape[1], shape[2]))
+                kernel = signal.gaussian(conv/resolution + 1, std=sigma) # type: ignore
+                kernel = np.outer(kernel, kernel)
 
-            # fill by column in row
-            
-            for lat in range(0, conv_array.shape[0]):
-                print(f'row {lat}/{conv_array.shape[0]}')
-                for lon in range(0, conv_array.shape[1]): 
-                    geo_array = padded_featuremap[int(lat+array_idxs['N']-conv_pad): int(lat+array_idxs['N']+conv_pad)+1,
-                                                  int(lon+array_idxs['W']-conv_pad): int(lon+array_idxs['W']+conv_pad)+1]
-                    if geo_array.shape != kernel.shape:
-                        print(geo_array.shape)
-                        print('padded feature map excerpt:')
-                        print(f'    {int(lat+array_idxs["N"]-conv_pad)}:{int(lat+array_idxs["N"]+conv_pad)+1}')
-                        print(f'    {int(lon+array_idxs["W"]-conv_pad)}:{int(lon+array_idxs["W"]+conv_pad)+1}')
-                        print('Cell:')
-                        print(f'    lat: {lat}/{conv_array.shape[0]}\n    lon: {lon}/{conv_array.shape[1]}')
-                    gaussian_array = geo_array * kernel
-                    conv_array[lat, lon] = np.nanmean(gaussian_array)
-
-            geomaps[idx * len(geofeaturelist)+conv_idx+1, :, :, :] = conv_array
+                # fill by column in row
+                
+                for lat in range(0, conv_array.shape[0]):
+                    for lon in range(0, conv_array.shape[1]): 
+                        geo_array = padded_featuremap[int(lat+array_idxs['N']-conv_pad): int(lat+array_idxs['N']+conv_pad)+1,
+                                                    int(lon+array_idxs['W']-conv_pad): int(lon+array_idxs['W']+conv_pad)+1]
+                        if geo_array.shape != kernel.shape:
+                            print(geo_array.shape)
+                            print('padded feature map excerpt:')
+                            print(f'    {int(lat+array_idxs["N"]-conv_pad)}:{int(lat+array_idxs["N"]+conv_pad)+1}')
+                            print(f'    {int(lon+array_idxs["W"]-conv_pad)}:{int(lon+array_idxs["W"]+conv_pad)+1}')
+                            print('Cell:')
+                            print(f'    lat: {lat}/{conv_array.shape[0]}\n    lon: {lon}/{conv_array.shape[1]}')
+                        gaussian_array = geo_array * kernel
+                        conv_array[lat, lon] = np.nanmean(gaussian_array)
+                
+                geomaps[geofeature_idx+conv_idx+1, :, :, :] = conv_array
     return geomaps
 
 

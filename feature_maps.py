@@ -267,10 +267,10 @@ def validation_featuremaps(datapath: str, geopath: str, stationinfo: str, savepa
         ValueError: Upon receiving a type other than "validation" or "inference"
     """
     # set folder name for intermediate steps, boundaries and times
-    folder = f'DATA/QRF_PALM_Feature_Maps_fast/{os.path.basename(palmpath).split(".nc")[0]}_palm_data'
+    folder = os.path.join(savepath, f'{os.path.basename(palmpath).split(".nc")[0]}_intermediate')
     if not os.path.isdir(folder):
         os.mkdir(folder)
-    savefile = f'{os.path.basename(palmpath).split(".nc")[0]}_palmhumi.json'
+    savefile = f'{os.path.basename(palmpath).split(".nc")[0]}_featuremaps.json'
 
     boundary, times, t_bool = extract_palm_data(palmpath, res)
     dump_file(f'{os.path.splitext(palmpath)[0]}_boundary.z', boundary)
