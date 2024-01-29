@@ -349,16 +349,19 @@ def end_timer():
     print(f'Time: {t_hour}:{t_min}:{t_sec}')
 
 
-def reduce_resolution(array, resolution):
+def reduce_resolution(original_array, resolution):
     """
     Reduces the dimension of a given array by the resolution. A 10x10 array with a resolution of 2 would return a 5x5 
     array. The method uses a simple average 
     """
-    new_array = np.zeros(shape=(int(array.shape[0]/resolution), int(array.shape[1]/resolution)))
+    new_array = np.zeros(shape=(int(original_array.shape[0]/resolution), int(original_array.shape[1]/resolution)))
     for row in range(new_array.shape[0]):
         for col in range(new_array.shape[1]):
-            new_array[row, col] = np.nanmean(array[row*resolution:row*resolution+resolution, 
-                                                col*resolution:col*resolution+resolution])
+            arr = original_array[row*resolution:row*resolution+resolution, col*resolution:col*resolution+resolution]
+            if np.isnan(arr).all():
+                new_array[row, col] = np.nan
+            else:
+                new_array[row, col] = np.nanmean(arr)
         
     return new_array
     

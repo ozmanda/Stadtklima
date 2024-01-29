@@ -150,7 +150,7 @@ def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: 
 
             # reduce padded_featuremap resolution
             padded_featuremap = reduce_resolution(padded_featuremap, resolution=resolution)
-            padded_featuremap[padded_featuremap == 0] = np.nan
+            # padded_featuremap[padded_featuremap == 0] = np.nan
             # add convoluted feature maps to geomaps
             print('    convolutions...')
             max_conv_pad = (np.max(convs)/resolution)/2
@@ -181,7 +181,8 @@ def generate_geomap(geopath: str, boundary: dict, shape: tuple, geofeaturelist: 
                             print(f'    lat: {lat}/{conv_array.shape[0]}\n    lon: {lon}/{conv_array.shape[1]}')
                         gaussian_array = geo_array * kernel
                         conv_array[lat, lon] = np.nanmean(gaussian_array)
-                
+                if np.sum(np.isnan(conv_array)) != 0:
+                    print(np.sum(np.isnan(conv_array)))
                 geomaps[geofeature_idx+conv_idx+1, :, :, :] = conv_array
     return geomaps
 
