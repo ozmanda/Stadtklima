@@ -128,7 +128,7 @@ def DST_TZ(times: list):
 def extract_times(origintime: np.datetime64, times_list: list):
     """
     Extracts the time vector, formatting it as a datetime. The time contained within the PALM file is given as
-    seconds since origin. Additionally, a boolean vector is generated, indicating the start of the useable time
+    minutes since origin. Additionally, a boolean vector is generated, indicating the start of the useable time
     series (certain observations are required to create the moving average).
     """
     times = []
@@ -201,99 +201,99 @@ def moving_average(temps: np.ndarray, datetimes: list, timedelta=Timedelta(minut
     return movingaverage
 
 
-def manhatten_distance_(featuremaps: np.ndarray):
-    print(f'featuremaps shape: {featuremaps.shape}')
-    times = featuremaps.shape[0]
-    for time in range(times):
-        print(f'time {time}/{times}')
-        start_timer()
-        full = np.transpose(np.array(np.where(featuremaps[time, :, :] != 0)))
-        for idxs, val in np.ndenumerate(featuremaps[time]):
-            if not val:
-                dists = cdist(np.array([idxs]), full, 'cityblock').astype(int)
-                nearest = np.where(dists == dists.min())[1]
-                nearest_vals = featuremaps[time, full[nearest][:, 0], full[nearest][:, 1]]
-                featuremaps[time, idxs[0], idxs[1]] = np.mean(nearest_vals)
-        print('Manhattan Distance Function: ', end=' ')
-        end_timer()
-    return featuremaps
+# def manhatten_distance_(featuremaps: np.ndarray):
+#     print(f'featuremaps shape: {featuremaps.shape}')
+#     times = featuremaps.shape[0]
+#     for time in range(times):
+#         print(f'time {time}/{times}')
+#         start_timer()
+#         full = np.transpose(np.array(np.where(featuremaps[time, :, :] != 0)))
+#         for idxs, val in np.ndenumerate(featuremaps[time]):
+#             if not val:
+#                 dists = cdist(np.array([idxs]), full, 'cityblock').astype(int)
+#                 nearest = np.where(dists == dists.min())[1]
+#                 nearest_vals = featuremaps[time, full[nearest][:, 0], full[nearest][:, 1]]
+#                 featuremaps[time, idxs[0], idxs[1]] = np.mean(nearest_vals)
+#         print('Manhattan Distance Function: ', end=' ')
+#         end_timer()
+#     return featuremaps
 
 
-def manhatten_distance(featuremaps: np.ndarray):
-    times: int = featuremaps.shape[0]
-    for t in range(times):
-        print(f'time {t+1}/{times}', end='\r')
-        full = np.where(featuremaps[t, :, :] != 0)
-        for idxs, val in np.ndenumerate(featuremaps[t]):
-            if val:
-                featuremaps[t, idxs[0], idxs[1]] = val
-                continue
-            else:
-                filled = False
-                d = 1
-                rows = []
-                cols = []
-                while not filled:
-                    lims = {'row_start': idxs[0]-d,
-                            'row_end': idxs[0]+d,
-                            'col_start': idxs[1]-d,
-                            'col_end': idxs[1]+d}
-                    # if one of the row numbers correspond to the row number of a cell with value
-                    if lims['row_start'] in full[0] or lims['row_end'] in full[0]:
-                        # find idx of matching row
-                        pos = np.where([x == lims['row_start'] or x == lims['row_end'] for x in full[0]])[0]
-                        for p in pos:
-                            if full[1][p] in range(lims['col_start'], lims['col_end'] + 1):
-                                rows.append(full[0][p])
-                                cols.append(full[1][p])
-                    if lims['col_start'] in full[1] or lims['col_end'] in full[1]:
-                        # find idx of matching column
-                        pos = np.where([x == lims['col_start'] or x == lims['col_end'] for x in full[1]])[0]
-                        for p in pos:
-                            if full[0][p] in range(lims['row_start'] + 1, lims['row_end']):
-                                rows.append(full[0][p])
-                                cols.append(full[1][p])
-                    if rows and cols:
-                        filled = True
-                    else:
-                        d += 1
-                featuremaps[t, idxs[0], idxs[1]] = np.mean(featuremaps[t, rows, cols])
-    return featuremaps
+# def manhatten_distance(featuremaps: np.ndarray):
+#     times: int = featuremaps.shape[0]
+#     for t in range(times):
+#         print(f'time {t+1}/{times}', end='\r')
+#         full = np.where(featuremaps[t, :, :] != 0)
+#         for idxs, val in np.ndenumerate(featuremaps[t]):
+#             if val:
+#                 featuremaps[t, idxs[0], idxs[1]] = val
+#                 continue
+#             else:
+#                 filled = False
+#                 d = 1
+#                 rows = []
+#                 cols = []
+#                 while not filled:
+#                     lims = {'row_start': idxs[0]-d,
+#                             'row_end': idxs[0]+d,
+#                             'col_start': idxs[1]-d,
+#                             'col_end': idxs[1]+d}
+#                     # if one of the row numbers correspond to the row number of a cell with value
+#                     if lims['row_start'] in full[0] or lims['row_end'] in full[0]:
+#                         # find idx of matching row
+#                         pos = np.where([x == lims['row_start'] or x == lims['row_end'] for x in full[0]])[0]
+#                         for p in pos:
+#                             if full[1][p] in range(lims['col_start'], lims['col_end'] + 1):
+#                                 rows.append(full[0][p])
+#                                 cols.append(full[1][p])
+#                     if lims['col_start'] in full[1] or lims['col_end'] in full[1]:
+#                         # find idx of matching column
+#                         pos = np.where([x == lims['col_start'] or x == lims['col_end'] for x in full[1]])[0]
+#                         for p in pos:
+#                             if full[0][p] in range(lims['row_start'] + 1, lims['row_end']):
+#                                 rows.append(full[0][p])
+#                                 cols.append(full[1][p])
+#                     if rows and cols:
+#                         filled = True
+#                     else:
+#                         d += 1
+#                 featuremaps[t, idxs[0], idxs[1]] = np.mean(featuremaps[t, rows, cols])
+#     return featuremaps
 
 
-def manhatten_distance_old(featuremaps: np.ndarray):
-    times = featuremaps.shape[0]
-    for time in range(times):
-        print(f'time {time}/{times}')
+# def manhatten_distance_old(featuremaps: np.ndarray):
+#     times = featuremaps.shape[0]
+#     for time in range(times):
+#         print(f'time {time}/{times}')
 
-        # two lists of indexes where humimaps has a value
-        full = np.where(featuremaps[time, :, :] != 0)
-        for idxs, val in np.ndenumerate(featuremaps[time, :, :]):
-            maxdist = featuremaps.shape[1] + featuremaps.shape[2]  # maximum possible distance between two cells
-            if val == 0:
-                nearest = []
-                for measurement in range(len(full[0])):
-                    dist = np.abs(idxs[0] - full[0][measurement]) + np.abs(idxs[1] - full[1][measurement])
-                    if dist < maxdist:
-                        maxdist = dist
-                        nearest = [measurement]
-                    elif dist == maxdist:
-                        nearest.append(measurement)
+#         # two lists of indexes where humimaps has a value
+#         full = np.where(featuremaps[time, :, :] != 0)
+#         for idxs, val in np.ndenumerate(featuremaps[time, :, :]):
+#             maxdist = featuremaps.shape[1] + featuremaps.shape[2]  # maximum possible distance between two cells
+#             if val == 0:
+#                 nearest = []
+#                 for measurement in range(len(full[0])):
+#                     dist = np.abs(idxs[0] - full[0][measurement]) + np.abs(idxs[1] - full[1][measurement])
+#                     if dist < maxdist:
+#                         maxdist = dist
+#                         nearest = [measurement]
+#                     elif dist == maxdist:
+#                         nearest.append(measurement)
 
-                if len(nearest) != 1:
-                    mes = 0
-                    for _, val in enumerate(nearest):
-                        mes += featuremaps[time, full[0][val], full[1][val]]
-                    try:
-                        featuremaps[time, idxs[0], idxs[1]] = mes/len(nearest)
-                    except ZeroDivisionError:
-                        featuremaps[time, idxs[0], idxs[1]] = mes / len(nearest)
-                else:
-                    featuremaps[time, idxs[0], idxs[1]] = featuremaps[time, full[0][nearest[0]], full[1][nearest[0]]]
-            else:
-                continue
+#                 if len(nearest) != 1:
+#                     mes = 0
+#                     for _, val in enumerate(nearest):
+#                         mes += featuremaps[time, full[0][val], full[1][val]]
+#                     try:
+#                         featuremaps[time, idxs[0], idxs[1]] = mes/len(nearest)
+#                     except ZeroDivisionError:
+#                         featuremaps[time, idxs[0], idxs[1]] = mes / len(nearest)
+#                 else:
+#                     featuremaps[time, idxs[0], idxs[1]] = featuremaps[time, full[0][nearest[0]], full[1][nearest[0]]]
+#             else:
+#                 continue
 
-    return featuremaps
+#     return featuremaps
 
 
 def extract_surfacetemps(palmpath):
@@ -317,24 +317,24 @@ def extract_surfacetemps(palmpath):
     return surf_temps
 
 
-#! this used to obscure the earlier manhattan_distance function, if something breaks, check here first --> reinstated to see if its faster
-#! TODO: I think this is the faster function, needs to be properly evaluated tho (ushe)
-def manhatten_distance(featuremaps: np.ndarray):
-    times = featuremaps.shape[0]
-    full_array = np.zeros(featuremaps.shape)
-    for time in range(times):
-        print(f'time {time}/{times}')
-        full = np.transpose(np.array(np.where(featuremaps[time, :, :] != 0)))
-        for idxs, val in np.ndenumerate(featuremaps[time]):
-            if val:
-                full_array[time, idxs[0], idxs[1]] = val
-                continue
-            else:
-                dists = cdist(np.array([idxs]), full).astype(int)
-                nearest = np.where(dists == dists.min())[1]
-                nearest_vals = featuremaps[time, full[nearest][:, 0], full[nearest][:, 1]]
-                full_array[time, idxs[0], idxs[1]] = np.mean(nearest_vals)
-    return full_array
+# #! this used to obscure the earlier manhattan_distance function, if something breaks, check here first --> reinstated to see if its faster
+# #! TODO: I think this is the faster function, needs to be properly evaluated tho (ushe)
+# def manhatten_distance(featuremaps: np.ndarray):
+#     times = featuremaps.shape[0]
+#     full_array = np.zeros(featuremaps.shape)
+#     for time in range(times):
+#         print(f'time {time}/{times}')
+#         full = np.transpose(np.array(np.where(featuremaps[time, :, :] != 0)))
+#         for idxs, val in np.ndenumerate(featuremaps[time]):
+#             if val:
+#                 full_array[time, idxs[0], idxs[1]] = val
+#                 continue
+#             else:
+#                 dists = cdist(np.array([idxs]), full).astype(int)
+#                 nearest = np.where(dists == dists.min())[1]
+#                 nearest_vals = featuremaps[time, full[nearest][:, 0], full[nearest][:, 1]]
+#                 full_array[time, idxs[0], idxs[1]] = np.mean(nearest_vals)
+#     return full_array
 
 
 def start_timer():
