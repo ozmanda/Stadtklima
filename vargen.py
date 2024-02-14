@@ -7,6 +7,8 @@ from utils import roundTime, DST_TZ, moving_average
 from irradiation import irradiationcalc
 from pandas import read_csv, to_datetime, DataFrame
 
+#! faulty stations are hardcoded and used in generate_dfs
+faultystations = ['C059A2225266','D07769DF208C','D63DFE9B164B','DF15D23E4B15','E2A0DF1A4941','E437CB2AF225','F033A8C6BB79','F4683D808CFB','F5C16A4B6340']
 
 def preprocessing(filepath):
     """
@@ -93,7 +95,7 @@ def generate_dfs(datapath, geopath, savepath, geoconvs, infofile):
         if filename.startswith('temp'):
             stationid = filename.split('.csv')[0].split('_')[1]
 
-            if f'{stationid}.csv' in os.listdir(savepath):
+            if f'{stationid}.csv' in os.listdir(savepath) or stationid in faultystations:
                 continue
 
             print(f'Processing station {stationid}')
@@ -167,7 +169,7 @@ if __name__ == '__main__':
     parser.add_argument('--geopath', type=str, default='Data/geodata',
                         help='relative path to the static / geographic data')
     parser.add_argument('--infofile', type=str, default=None)
-    parser.add_argument('--savepath', type=str, default='Data/MeasurementFeatures_v6',
+    parser.add_argument('--savepath', type=str, default='Data/MeasurementFeatures_final_v1',
                         help='relative path to save folder')
     args = parser.parse_args()
 
