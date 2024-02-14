@@ -175,9 +175,9 @@ def load_file(path: str):
 
 
 def moving_average(temps: np.ndarray, datetimes: list, timedelta=Timedelta(minutes=60)):
+    #! this moving average calculate is not correct, it doesn't consider that observations are lost
     movingaverage = []
     for i, time in enumerate(datetimes):
-        print(f'time {i}: ', end='')
         ma = []
         for idx, t in enumerate(datetimes):
             if time-timedelta <= t <= time:
@@ -185,10 +185,8 @@ def moving_average(temps: np.ndarray, datetimes: list, timedelta=Timedelta(minut
             elif t > time:
                 break
         if not ma:
-            print(f'moving average shape: {np.array(movingaverage).shape}')
             movingaverage.append(temps[i])
         else:
-            print(f'moving average shape: {np.array(movingaverage).shape}')
             movingaverage.append(np.mean(ma, axis=0))
 
     movingaverage = np.array(movingaverage)
