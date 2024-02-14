@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from utils import lv03_to_lv95, roundTime, manhatten_distance, reduce_resolution, remove_emptytimes
+from utils import lv03_to_lv95, roundTime, reduce_resolution, remove_emptytimes
 from warnings import catch_warnings, warn, simplefilter
 import rasterio
 from irradiation import irradiationmap
