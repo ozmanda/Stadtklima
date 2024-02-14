@@ -108,9 +108,13 @@ def palm_temp(surfacetemps, t):
 
 def stations_loc(boundary, stationdata):
     print('Identifying stations within the boundary')
+    #! these stations were identified in the exploratory analysis of the data and are hardcoded for now
+    faultystations = ['C059A2225266','D07769DF208C','D63DFE9B164B','DF15D23E4B15','E2A0DF1A4941','E437CB2AF225','F033A8C6BB79','F4683D808CFB','F5C16A4B6340']
     stationscsv = read_csv(stationdata, delimiter=";")
     stations = {}
     for _, row in stationscsv.iterrows():
+        if row["stationid_new"] in faultystations:
+            continue
         if boundary['CH_W'] <= int(row["CH_E"]) <= boundary['CH_E'] and boundary['CH_S'] <= int(row["CH_N"]) <= boundary['CH_N']:
             stations[row["stationid_new"]] = {'lat': int(row["CH_N"]), 'lon': int(row["CH_E"])}
     return stations
