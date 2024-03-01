@@ -2,10 +2,11 @@ import os
 import numpy
 import pandas
 import pathlib
+import pandas as pd
 from pathlib import Path
+from shutil import copyfile
 from ipywidgets import Output, Button, Layout, VBox, HBox, Image
 from IPython.display import display, clear_output
-from shutil import copyfile
 
 class LabellingTool():
 
@@ -22,6 +23,7 @@ class LabellingTool():
         self.assert_dirs()
 
     def run_labelling(self):
+        print(self.imgdir)
         self.image = Image(value=open(self.image_paths[self.position], 'rb').read(), format='jpg')
         self.frame = VBox([self.image, self.buttons])
         display(self.frame)
@@ -98,4 +100,26 @@ class LabellingTool():
         df.to_csv(savepath, index=False)
         print('Labels saved to labels.csv')
         return df
+
+
+    def merge_labels(self):
+        #! programmed without internet, assumption is imgdir = Daten_Meteoblue/Messdaten/Exploratory Analysis/mb_4
+        analysisdir = os.path.dirname(self.imgdir)
+        labels = pd.DataFrame(columns=['station_id', 'label'])
+        for folder in os.listdir(analysisdir):
+            file = pd.read_csv(os.path.join(self.imgdir, folder, 'labels.csv'), delimiter=',')
+            for station in file['station_id']:
+                if station in labels['station_id']:
+                    if file[file['station_id'] == station]['label'] == 'faulty' or labels[labels['station_id'] == station]['label'] == 'faulty':
+                        labels[labels['station_id'] == station]['label'] = 'faulty'
+                    elif file[file['station_id'] == station]['label'] == 'overheated' or labels[labels['station_id'] == station]['label'] == 'overheated':
+                        labels[labels['station_id'] == station]['label'] = 'overheated'
+                else:
+                    labels[station] = file[file['station_id'] == station]
+            labels['station_id'].extend(file['station_id'])
+            labels['label'].extend(file['label'])
+
+        savepath = os.path.join(analysisdir, 'labels_gathered.csv')
+        labels.to_csv(savepath, index=False, delimiter=',')
+
     
