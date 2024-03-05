@@ -150,6 +150,7 @@ def temperature_maps(datapath: str, stations: dict, times: list, boundary: dict,
     dump_file(os.path.join(folder, 'times.z'), times)
 
     # generate manhattan distance maps and save
+    #! manhattan distance has to be replaced with PALM temperature data
     md = manhatten_distance(temps)
     dump_file(os.path.join(folder, 'manhattan.z'), md)
 
@@ -178,6 +179,7 @@ def generate_features(datapath: str, geopath: str, stations: dict, boundary: dic
                 md = load_file(os.path.join(folder, 'md.z'))
             elif os.path.isfile(os.path.join(folder, 'temps.z')):
                 temps = load_file(os.path.join(folder, 'temps.z'))
+                #! manhattan distance has to be replaced with PALM temperature data
                 md = manhatten_distance(temps)
                 dump_file(os.path.join(folder, 'manhattan.z'), md)
                 ma = moving_average(md, times)
